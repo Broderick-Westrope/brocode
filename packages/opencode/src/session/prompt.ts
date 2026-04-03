@@ -67,9 +67,7 @@ IMPORTANT:
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. You MUST use the StructuredOutput tool to provide your final response. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the schema.`
 
 function shouldDefer(cfg: Config.Info, model: Provider.Model): boolean {
-  if (!ProviderTransform.supportsDefer(model)) return false
-  const setting = cfg.experimental?.defer_tools
-  return setting === true || setting === "auto"
+  return cfg.experimental?.defer_tools === true && ProviderTransform.supportsDefer(model)
 }
 
 export namespace SessionPrompt {
