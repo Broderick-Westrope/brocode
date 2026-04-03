@@ -22,4 +22,4 @@ Tool definitions and their transformed schemas are now cached per-session instea
 
 ### 2026-04-03 — Compact skill listing
 
-The system prompt included full descriptions and file paths for every installed skill. Now it sends just the names. Agents still see descriptions when they open the skill tool, so behavior is unchanged. Saves ~5-8K tokens for large skill sets.
+The system prompt included full descriptions, XML markup, and file paths for every installed skill. Now it uses a compact markdown list with names and descriptions only, dropping the XML wrapper and location URLs. Saves ~3-5K tokens for large skill sets.

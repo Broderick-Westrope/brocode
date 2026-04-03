@@ -68,7 +68,7 @@ export namespace SystemPrompt {
     return [
       "Skills provide specialized instructions and workflows for specific tasks.",
       "Use the skill tool to load a skill when a task matches its description.",
-      Skill.fmt(list, { compact: true }),
+      Skill.fmt(list),
     ].join("\n")
   }
 }
