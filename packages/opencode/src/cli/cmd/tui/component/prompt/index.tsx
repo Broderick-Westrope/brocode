@@ -94,6 +94,7 @@ export function Prompt(props: PromptProps) {
   const list = createMemo(() => props.placeholders?.normal ?? [])
   const shell = createMemo(() => props.placeholders?.shell ?? [])
   const [auto, setAuto] = createSignal<AutocompleteRef>()
+  const [autoaccept, setAutoaccept] = kv.signal<"none" | "edit">("permission_auto_accept", "edit")
 
   function promptModelWarning() {
     toast.show({
@@ -206,6 +207,17 @@ export function Prompt(props: PromptProps) {
 
   command.register(() => {
     return [
+      {
+        title: autoaccept() === "none" ? "Enable autoedit" : "Disable autoedit",
+        value: "permission.auto_accept.toggle",
+        search: "toggle permissions",
+        keybind: "permission_auto_accept_toggle",
+        category: "Agent",
+        onSelect: (dialog) => {
+          setAutoaccept(() => (autoaccept() === "none" ? "edit" : "none"))
+          dialog.clear()
+        },
+      },
       {
         title: "Clear prompt",
         value: "prompt.clear",
@@ -1105,7 +1117,14 @@ export function Prompt(props: PromptProps) {
                   </box>
                 </Show>
               </box>
-              {props.right}
+              <box flexDirection="row" gap={1}>
+                <Show when={autoaccept() === "edit"}>
+                  <text>
+                    <span style={{ fg: theme.warning }}>autoedit</span>
+                  </text>
+                </Show>
+                {props.right}
+              </box>
             </box>
           </box>
         </box>
