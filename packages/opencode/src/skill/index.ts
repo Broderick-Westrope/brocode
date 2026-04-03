@@ -1,6 +1,5 @@
 import os from "os"
 import path from "path"
-import { pathToFileURL } from "url"
 import z from "zod"
 import { Effect, Layer, ServiceMap } from "effect"
 import { NamedError } from "@opencode-ai/util/error"
@@ -237,22 +236,10 @@ export namespace Skill {
     Layer.provide(AppFileSystem.defaultLayer),
   )
 
-  export function fmt(list: Info[], opts: { verbose: boolean }) {
+  export function fmt(list: Info[], opts: { compact?: boolean } = {}) {
     if (list.length === 0) return "No skills are currently available."
 
-    if (opts.verbose) {
-      return [
-        "<available_skills>",
-        ...list.flatMap((skill) => [
-          "  <skill>",
-          `    <name>${skill.name}</name>`,
-          `    <description>${skill.description}</description>`,
-          `    <location>${pathToFileURL(skill.location).href}</location>`,
-          "  </skill>",
-        ]),
-        "</available_skills>",
-      ].join("\n")
-    }
+    if (opts.compact) return list.map((skill) => skill.name).join(", ")
 
     return ["## Available Skills", ...list.map((skill) => `- **${skill.name}**: ${skill.description}`)].join("\n")
   }
