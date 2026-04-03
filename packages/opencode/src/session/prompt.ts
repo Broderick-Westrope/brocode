@@ -102,6 +102,10 @@ export namespace SessionPrompt {
       const scope = yield* Scope.Scope
       const instruction = yield* Instruction.Service
 
+      // Cache of transformed tool schemas — ensures identical serialized bytes across
+      // turns so the provider's prompt cache recognizes tool blocks as unchanged.
+      const schemas = new Map<string, object>()
+
       const state = yield* InstanceState.make(
         Effect.fn("SessionPrompt.state")(function* () {
           const runners = new Map<string, Runner<MessageV2.WithParts>>()
@@ -437,7 +441,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           { modelID: ModelID.make(input.model.api.id), providerID: input.model.providerID },
           input.agent,
         )) {
-          const schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
+          const key = `${item.id}:${input.model.id}`
+          let schema = schemas.get(key)
+          if (!schema) {
+            schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
+            schemas.set(key, schema)
+          }
           tools[item.id] = tool({
             id: item.id as any,
             description: item.description,
@@ -477,9 +486,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const execute = item.execute
           if (!execute) continue
 
-          const schema = yield* Effect.promise(() => Promise.resolve(asSchema(item.inputSchema).jsonSchema))
-          const transformed = ProviderTransform.schema(input.model, schema)
-          item.inputSchema = jsonSchema(transformed)
+          const sk = `mcp:${key}:${input.model.id}`
+          let transformed = schemas.get(sk)
+          if (!transformed) {
+            const raw = yield* Effect.promise(() => Promise.resolve(asSchema(item.inputSchema).jsonSchema))
+            transformed = ProviderTransform.schema(input.model, raw)
+            schemas.set(sk, transformed)
+          }
+          item.inputSchema = jsonSchema(transformed as any)
           item.execute = (args, opts) =>
             Effect.runPromise(
               Effect.gen(function* () {

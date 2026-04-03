@@ -39,6 +39,7 @@ export namespace ToolRegistry {
 
   type State = {
     custom: Tool.Info[]
+    initCache: Map<string, Tool.Def & { id: string }>
   }
 
   export interface Interface {
@@ -108,7 +109,7 @@ export namespace ToolRegistry {
             }
           }
 
-          return { custom }
+          return { custom, initCache: new Map() }
         }),
       )
 
@@ -177,6 +178,9 @@ export namespace ToolRegistry {
         return yield* Effect.forEach(
           filtered,
           Effect.fnUntraced(function* (tool: Tool.Info) {
+            const key = `${tool.id}:${agent?.name ?? ""}`
+            const hit = s.initCache.get(key)
+            if (hit) return hit
             using _ = log.time(tool.id)
             const next = yield* Effect.promise(() => tool.init({ agent }))
             const output = {
@@ -184,13 +188,15 @@ export namespace ToolRegistry {
               parameters: next.parameters,
             }
             yield* plugin.trigger("tool.definition", { toolID: tool.id }, output)
-            return {
+            const result = {
               id: tool.id,
               description: output.description,
               parameters: output.parameters,
               execute: next.execute,
               formatValidationError: next.formatValidationError,
             }
+            s.initCache.set(key, result)
+            return result
           }),
           { concurrency: "unbounded" },
         )
