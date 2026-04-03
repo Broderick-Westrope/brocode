@@ -10,6 +10,7 @@ import { Agent } from "../agent/agent"
 import { Provider } from "../provider/provider"
 import { ModelID, ProviderID } from "../provider/schema"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions, asSchema } from "ai"
+import { createAnthropic } from "@ai-sdk/anthropic"
 import { SessionCompaction } from "./compaction"
 import { Instance } from "../project/instance"
 import { Bus } from "../bus"
@@ -33,6 +34,7 @@ import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import * as Stream from "effect/Stream"
 import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
+import { Config } from "../config/config"
 import { ConfigMarkdown } from "../config/markdown"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/util/error"
@@ -63,6 +65,12 @@ IMPORTANT:
 - This tool provides your final answer - no further actions are taken after calling it`
 
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. You MUST use the StructuredOutput tool to provide your final response. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the schema.`
+
+function shouldDefer(cfg: Config.Info, model: Provider.Model): boolean {
+  if (!ProviderTransform.supportsDefer(model)) return false
+  const setting = cfg.experimental?.defer_tools
+  return setting === true || setting === "auto"
+}
 
 export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
@@ -98,6 +106,7 @@ export namespace SessionPrompt {
       const filetime = yield* FileTime.Service
       const registry = yield* ToolRegistry.Service
       const truncate = yield* Truncate.Service
+      const config = yield* Config.Service
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       const scope = yield* Scope.Scope
       const instruction = yield* Instruction.Service
@@ -105,6 +114,10 @@ export namespace SessionPrompt {
       // Cache of transformed tool schemas — ensures identical serialized bytes across
       // turns so the provider's prompt cache recognizes tool blocks as unchanged.
       const schemas = new Map<string, object>()
+
+      // Lazy singleton for Anthropic provider tool access (tool search).
+      // No API key needed — only used to construct provider tool definitions.
+      let anthropic: ReturnType<typeof createAnthropic> | undefined
 
       const state = yield* InstanceState.make(
         Effect.fn("SessionPrompt.state")(function* () {
@@ -482,7 +495,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           })
         }
 
-        for (const [key, item] of Object.entries(yield* mcp.tools())) {
+        const cfg = yield* config.get()
+        const defer = shouldDefer(cfg, input.model)
+
+        for (let [key, item] of Object.entries(yield* mcp.tools())) {
           const execute = item.execute
           if (!execute) continue
 
@@ -494,6 +510,18 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             schemas.set(sk, transformed)
           }
           item.inputSchema = jsonSchema(transformed as any)
+          if (defer) {
+            item = {
+              ...item,
+              providerOptions: {
+                ...item.providerOptions,
+                anthropic: {
+                  ...(item.providerOptions?.anthropic as Record<string, unknown> | undefined),
+                  deferLoading: true,
+                },
+              },
+            }
+          }
           item.execute = (args, opts) =>
             Effect.runPromise(
               Effect.gen(function* () {
@@ -559,6 +587,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               }),
             )
           tools[key] = item
+        }
+
+        // Add server-side tool search when deferring MCP tools.
+        // The Anthropic API handles search and schema expansion via tool_reference.
+        if (defer) {
+          if (!anthropic) anthropic = createAnthropic({})
+          tools["anthropic_tool_search_bm25"] = anthropic.tools.toolSearchBm25_20251119() as AITool
         }
 
         return tools
@@ -1742,6 +1777,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         Layer.provide(Plugin.defaultLayer),
         Layer.provide(Session.defaultLayer),
         Layer.provide(Agent.defaultLayer),
+        Layer.provide(Config.defaultLayer),
         Layer.provide(Bus.layer),
         Layer.provide(CrossSpawnSpawner.defaultLayer),
       ),

@@ -1043,4 +1043,10 @@ export namespace ProviderTransform {
 
     return schema as JSONSchema7
   }
+
+  export function supportsDefer(model: Provider.Model): boolean {
+    if (model.api.npm !== "@ai-sdk/anthropic") return false
+    const id = model.api.id.toLowerCase()
+    return id.includes("opus-4") || id.includes("sonnet-4")
+  }
 }
