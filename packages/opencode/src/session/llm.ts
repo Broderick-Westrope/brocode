@@ -98,6 +98,7 @@ export namespace LLM {
     ])
     // TODO: move this to a proper hook
     const isOpenaiOauth = provider.id === "openai" && auth?.type === "oauth"
+    l.debug("auth", { type: auth?.type ?? "api-key", provider: provider.id })
 
     const system: string[] = []
     system.push(
@@ -320,6 +321,32 @@ export namespace LLM {
               if (args.type === "stream") {
                 // @ts-expect-error
                 args.params.prompt = ProviderTransform.message(args.params.prompt, input.model, options)
+                // Add cache_control to the last non-deferred tool so the entire tools
+                // block is prompt-cached on subsequent turns. Must be done here (not earlier)
+                // because the AI SDK normalizes tool objects before the middleware runs.
+                // Uses the same broad guard as applyCaching for messages (transform.ts:281-289).
+                if (
+                  args.params.tools &&
+                  (input.model.providerID === "anthropic" ||
+                    input.model.providerID === "google-vertex-anthropic" ||
+                    input.model.api.id.includes("claude") ||
+                    input.model.api.npm === "@ai-sdk/anthropic") &&
+                  input.model.api.npm !== "@ai-sdk/gateway"
+                ) {
+                  for (let i = args.params.tools.length - 1; i >= 0; i--) {
+                    const t = args.params.tools[i]
+                    if (t.type !== "function") continue
+                    if (t.providerOptions?.anthropic?.deferLoading) continue
+                    t.providerOptions = {
+                      ...t.providerOptions,
+                      anthropic: {
+                        ...(t.providerOptions?.anthropic as Record<string, unknown> | undefined),
+                        cacheControl: { type: "ephemeral" },
+                      },
+                    }
+                    break
+                  }
+                }
               }
               return args.params
             },

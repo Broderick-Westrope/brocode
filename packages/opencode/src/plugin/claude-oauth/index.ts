@@ -1,7 +1,10 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 import { OAUTH_DUMMY_KEY } from "../../auth"
+import { Log } from "../../util/log"
 import * as credentials from "./credentials"
 import * as billing from "./billing"
+
+const log = Log.create({ service: "plugin.claude-oauth" })
 
 const VERSION = () => process.env.ANTHROPIC_CLI_VERSION ?? "2.1.90"
 const DEFAULT_BETA =
@@ -48,6 +51,7 @@ export async function ClaudeOAuthPlugin(_input: PluginInput): Promise<Hooks> {
         return {
           apiKey: OAUTH_DUMMY_KEY,
           async fetch(url: RequestInfo | URL, init?: RequestInit) {
+            log.debug("oauth fetch", { url: typeof url === "string" ? url : url instanceof URL ? url.href : url.url })
             const creds = await credentials.cached()
             if (!creds) throw new Error("Claude Code credentials not found. Run `claude` to authenticate.")
 

@@ -1366,6 +1366,14 @@ export namespace Provider {
             const combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
             if (combined) opts.signal = combined
 
+            const hdrs = opts.headers instanceof Headers ? opts.headers : new Headers(opts.headers)
+            log.debug("fetch", {
+              url: typeof input === "string" ? input : input.url,
+              method: opts.method ?? "GET",
+              hasAuth: !!hdrs.get("authorization"),
+              beta: hdrs.get("anthropic-beta"),
+            })
+
             // Strip openai itemId metadata following what codex does
             if (model.api.npm === "@ai-sdk/openai" && opts.body && opts.method === "POST") {
               const body = JSON.parse(opts.body as string)
@@ -1386,6 +1394,8 @@ export namespace Provider {
               // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
               timeout: false,
             })
+
+            log.debug("response", { status: res.status })
 
             if (!chunkAbortCtl) return res
             return wrapSSE(res, chunkTimeout, chunkAbortCtl)

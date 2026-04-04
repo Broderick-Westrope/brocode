@@ -50,7 +50,7 @@ description: Skill for tool tests.
         fn: async () => {
           const tool = await SkillTool.init()
           const skillPath = path.join(tmp.path, ".opencode", "skill", "tool-skill", "SKILL.md")
-          expect(tool.description).toContain(`**tool-skill**: Skill for tool tests.`)
+          expect(tool.description).toContain("tool-skill")
         },
       })
     } finally {
@@ -94,9 +94,10 @@ description: ${description}
 
           expect(first.description).toBe(second.description)
 
-          const alpha = first.description.indexOf("**alpha-skill**: Alpha skill.")
-          const middle = first.description.indexOf("**middle-skill**: Middle skill.")
-          const zeta = first.description.indexOf("**zeta-skill**: Zeta skill.")
+          // compact mode: names only, comma-separated
+          const alpha = first.description.indexOf("alpha-skill")
+          const middle = first.description.indexOf("middle-skill")
+          const zeta = first.description.indexOf("zeta-skill")
 
           expect(alpha).toBeGreaterThan(-1)
           expect(middle).toBeGreaterThan(alpha)

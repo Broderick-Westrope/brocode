@@ -190,8 +190,10 @@ export namespace ProviderTransform {
   }
 
   function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage[] {
-    const system = msgs.filter((msg) => msg.role === "system").slice(0, 2)
-    const final = msgs.filter((msg) => msg.role !== "system").slice(-2)
+    // The @ai-sdk/anthropic provider enforces MAX_CACHE_BREAKPOINTS = 4.
+    // Reserve: 2 system + 1 final message + 1 tool (set in llm.ts middleware) = 4.
+    const system = msgs.filter((msg) => msg.role === "system").slice(-2)
+    const final = msgs.filter((msg) => msg.role !== "system").slice(-1)
 
     const providerOptions = {
       anthropic: {

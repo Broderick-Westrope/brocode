@@ -495,6 +495,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
         const cfg = yield* config.get()
         const defer = shouldDefer(cfg, input.model)
+        if (defer) log.debug("defer", { model: input.model.id })
 
         for (let [key, item] of Object.entries(yield* mcp.tools())) {
           const execute = item.execute
@@ -587,12 +588,22 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           tools[key] = item
         }
 
+        // Tool cache_control is applied in the transformParams middleware (llm.ts)
+        // alongside message caching, since the AI SDK normalizes tool objects
+        // before the middleware runs, which strips providerOptions set here.
+
         // Add server-side tool search when deferring MCP tools.
         // The Anthropic API handles search and schema expansion via tool_reference.
         if (defer) {
           if (!anthropic) anthropic = createAnthropic({})
           tools["anthropic_tool_search_bm25"] = anthropic.tools.toolSearchBm25_20251119() as AITool
         }
+
+        log.debug("tools", {
+          count: Object.keys(tools).length,
+          defer,
+          names: Object.keys(tools),
+        })
 
         return tools
       })
