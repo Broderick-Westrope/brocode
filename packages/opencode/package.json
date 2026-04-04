@@ -11,7 +11,7 @@
     "test": "bun test --timeout 30000",
     "test:ci": "mkdir -p .artifacts/unit && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit.xml",
     "build": "bun run script/build.ts",
-    "install-local": "bun run build --single --skip-install --skip-embed-web-ui && cp dist/opencode-$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/aarch64/arm64/')/bin/opencode ~/.bun/bin/opencode",
+    "install-local": "bun run build --single --skip-install --skip-embed-web-ui && cp dist/opencode-$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/aarch64/arm64/')/bin/opencode ~/.bun/bin/opencode && codesign --force --sign - ~/.bun/bin/opencode",
     "upgrade-opentui": "bun run script/upgrade-opentui.ts",
     "dev": "bun run --conditions=browser ./src/index.ts",
     "random": "echo 'Random script updated at $(date)' && echo 'Change queued successfully' && echo 'Another change made' && echo 'Yet another change' && echo 'One more change' && echo 'Final change' && echo 'Another final change' && echo 'Yet another final change'",
