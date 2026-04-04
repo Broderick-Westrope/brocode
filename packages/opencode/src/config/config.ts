@@ -1034,6 +1034,13 @@ export namespace Config {
             .positive()
             .optional()
             .describe("Timeout in milliseconds for model context protocol (MCP) requests"),
+          defer_tools: z
+            .boolean()
+            .optional()
+            .describe(
+              "Defer MCP tool loading so the model discovers tools on-demand via search. " +
+                "Only supported on Anthropic models (Claude Sonnet 4+, Opus 4+)",
+            ),
         })
         .optional(),
     })

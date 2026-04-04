@@ -43,9 +43,9 @@ description: ${description}
 
           expect(first).toBe(second)
 
-          const alpha = first!.indexOf("<name>alpha-skill</name>")
-          const middle = first!.indexOf("<name>middle-skill</name>")
-          const zeta = first!.indexOf("<name>zeta-skill</name>")
+          const alpha = first!.indexOf("**alpha-skill**")
+          const middle = first!.indexOf("**middle-skill**")
+          const zeta = first!.indexOf("**zeta-skill**")
 
           expect(alpha).toBeGreaterThan(-1)
           expect(middle).toBeGreaterThan(alpha)

@@ -190,8 +190,10 @@ export namespace ProviderTransform {
   }
 
   function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage[] {
-    const system = msgs.filter((msg) => msg.role === "system").slice(0, 2)
-    const final = msgs.filter((msg) => msg.role !== "system").slice(-2)
+    // The @ai-sdk/anthropic provider enforces MAX_CACHE_BREAKPOINTS = 4.
+    // Reserve: 2 system + 1 final message + 1 tool (set in llm.ts middleware) = 4.
+    const system = msgs.filter((msg) => msg.role === "system").slice(-2)
+    const final = msgs.filter((msg) => msg.role !== "system").slice(-1)
 
     const providerOptions = {
       anthropic: {
@@ -1042,5 +1044,14 @@ export namespace ProviderTransform {
     }
 
     return schema as JSONSchema7
+  }
+
+  export function supportsDefer(model: Provider.Model): boolean {
+    if (model.api.npm !== "@ai-sdk/anthropic") return false
+    // Tool search requires Sonnet 4+ or Opus 4+ (no Haiku).
+    // Matches: claude-sonnet-4-20250514, claude-opus-4.1, claude-opus-4-1, claude-opus-12-...
+    const match = model.api.id.toLowerCase().match(/claude-(?:sonnet|opus)-(\d+)/)
+    if (!match) return false
+    return parseInt(match[1], 10) >= 4
   }
 }
