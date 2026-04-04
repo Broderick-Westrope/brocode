@@ -1,8 +1,7 @@
-// Billing header is injected as a system message entry (not an HTTP header).
-// The cch field is derived from the first user message text. In the
-// system.transform hook we don't have access to messages, so cch uses
-// the system prompt text passed as `text` instead. This matches the
-// external plugin's behavior when invoked at the system transform stage.
+// Billing header injected as a system message entry (not an HTTP header).
+// The cch field is intentionally derived from system prompt text rather than
+// user message text — the system.transform hook doesn't have access to
+// messages, so we use the system prompt as the hash input instead.
 
 function sha256(input: string) {
   return new Bun.CryptoHasher("sha256").update(input).digest("hex")

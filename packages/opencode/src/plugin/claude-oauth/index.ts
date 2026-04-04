@@ -65,6 +65,8 @@ export async function ClaudeOAuthPlugin(_input: PluginInput): Promise<Hooks> {
 
             const res = await fetch(url, { ...init, headers })
 
+            // Single retry on 401: refresh credentials and retry once.
+            // If the refreshed token also 401s, the response propagates to the caller.
             if (res.status === 401) {
               const refreshed = await credentials.force()
               if (!refreshed) throw new Error("Claude Code credentials expired. Run `claude` to re-authenticate.")

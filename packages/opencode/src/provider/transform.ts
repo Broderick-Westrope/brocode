@@ -1048,7 +1048,10 @@ export namespace ProviderTransform {
 
   export function supportsDefer(model: Provider.Model): boolean {
     if (model.api.npm !== "@ai-sdk/anthropic") return false
-    const id = model.api.id.toLowerCase()
-    return id.includes("opus-4") || id.includes("sonnet-4")
+    // Tool search requires Sonnet 4+ or Opus 4+ (no Haiku).
+    // Matches: claude-sonnet-4-20250514, claude-opus-4.1, claude-opus-4-1, claude-opus-12-...
+    const match = model.api.id.toLowerCase().match(/claude-(?:sonnet|opus)-(\d+)/)
+    if (!match) return false
+    return parseInt(match[1], 10) >= 4
   }
 }

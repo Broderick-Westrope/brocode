@@ -1,6 +1,8 @@
 import path from "path"
 import os from "os"
-import { writeFile } from "fs/promises"
+import { Log } from "../../util/log"
+
+const log = Log.create({ service: "plugin.claude-oauth.credentials" })
 
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 const TOKEN_URL = "https://claude.ai/v1/oauth/token"
@@ -48,8 +50,8 @@ export async function read(): Promise<Creds | undefined> {
         if (result) return result
       }
       // exit 44 = not found, 36 = locked, null = timeout — all fall through to file
-    } catch {
-      // Fall through to file
+    } catch (e) {
+      log.debug("keychain read failed", { error: e })
     }
   }
 
@@ -58,7 +60,8 @@ export async function read(): Promise<Creds | undefined> {
 
   try {
     return parse((await file.json()) as RawCreds)
-  } catch {
+  } catch (e) {
+    log.debug("credentials parse failed", { error: e })
     return undefined
   }
 }
@@ -90,8 +93,11 @@ export async function refresh(token: string): Promise<Creds | undefined> {
     const file = CREDS_FILE()
     const existing = await Bun.file(file)
       .json()
-      .catch(() => ({}))
-    await writeFile(
+      .catch((e: unknown) => {
+        log.debug("existing credentials unreadable", { error: e })
+        return {}
+      })
+    await Bun.write(
       file,
       JSON.stringify({
         ...(existing as object),
@@ -105,7 +111,8 @@ export async function refresh(token: string): Promise<Creds | undefined> {
     )
 
     return creds
-  } catch {
+  } catch (e) {
+    log.debug("token refresh failed", { error: e })
     return undefined
   }
 }

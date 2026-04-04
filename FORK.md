@@ -24,6 +24,10 @@ Saves ~20-30K tokens with many MCP tools connected. Requires Anthropic models (C
 }
 ```
 
+### 2026-04-03 — Tool-level prompt caching
+
+The Anthropic API supports up to 4 cache breakpoints. Previously only 2 were used on system messages, and the large system prompt was often missed due to billing/identity messages being prepended by OAuth. Now the breakpoints are allocated as: 2 system (last two, catching the large prompt) + 1 final message + 1 tool block. The last non-deferred tool gets `cache_control: ephemeral`, causing the entire ~200K+ tools block to be prompt-cached from turn 2 onward.
+
 ### 2026-04-03 — Tool schema caching
 
 Tool definitions and their transformed schemas are now cached per-session instead of recomputed on every turn. This improves prompt cache hit rates with providers that support it, since the serialized tool blocks stay byte-identical across turns.
