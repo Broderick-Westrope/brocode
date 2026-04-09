@@ -247,11 +247,12 @@ async function collect(root: Node, cwd: string, ps: boolean, shell: string): Pro
 
   for (const node of commands(root)) {
     const command = parts(node)
-    const tokens = command.map((item) => item.text)
+    const raw = command.map((item) => item.text)
+    const tokens = BashArity.unwrap(raw)
     const cmd = ps ? tokens[0]?.toLowerCase() : tokens[0]
 
     if (cmd && FILES.has(cmd)) {
-      for (const arg of pathArgs(command, ps)) {
+      for (const arg of pathArgs(command.slice(raw.length - tokens.length), ps)) {
         const resolved = await argPath(arg, cwd, ps, shell)
         log.info("resolved path", { arg, resolved })
         if (!resolved || Instance.containsPath(resolved)) continue

@@ -1,12 +1,20 @@
 export namespace BashArity {
+  const WRAPPERS = new Set(["rtk"])
+
+  export function unwrap(tokens: string[]) {
+    if (tokens.length > 1 && WRAPPERS.has(tokens[0])) return tokens.slice(1)
+    return tokens
+  }
+
   export function prefix(tokens: string[]) {
-    for (let len = tokens.length; len > 0; len--) {
-      const prefix = tokens.slice(0, len).join(" ")
+    const stripped = unwrap(tokens)
+    for (let len = stripped.length; len > 0; len--) {
+      const prefix = stripped.slice(0, len).join(" ")
       const arity = ARITY[prefix]
-      if (arity !== undefined) return tokens.slice(0, arity)
+      if (arity !== undefined) return stripped.slice(0, arity)
     }
-    if (tokens.length === 0) return []
-    return tokens.slice(0, 1)
+    if (stripped.length === 0) return []
+    return stripped.slice(0, 1)
   }
 
   /* Generated with following prompt:

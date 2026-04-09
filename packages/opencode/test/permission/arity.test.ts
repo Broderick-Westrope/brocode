@@ -31,3 +31,15 @@ test("edge cases", () => {
   expect(BashArity.prefix(["single"])).toEqual(["single"])
   expect(BashArity.prefix(["git"])).toEqual(["git"])
 })
+
+test("rtk wrapper is stripped", () => {
+  expect(BashArity.prefix(["rtk", "cat", "file.txt"])).toEqual(["cat"])
+  expect(BashArity.prefix(["rtk", "git", "checkout", "main"])).toEqual(["git", "checkout"])
+  expect(BashArity.prefix(["rtk", "npm", "run", "dev"])).toEqual(["npm", "run", "dev"])
+  expect(BashArity.prefix(["rtk", "docker", "compose", "up"])).toEqual(["docker", "compose", "up"])
+  expect(BashArity.prefix(["rtk", "unknown", "arg"])).toEqual(["unknown"])
+})
+
+test("bare rtk is not stripped", () => {
+  expect(BashArity.prefix(["rtk"])).toEqual(["rtk"])
+})
