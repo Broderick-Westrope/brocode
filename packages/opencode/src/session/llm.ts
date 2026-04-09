@@ -98,6 +98,7 @@ export namespace LLM {
     ])
     // TODO: move this to a proper hook
     const isOpenaiOauth = provider.id === "openai" && auth?.type === "oauth"
+    const isAnthropicOauth = provider.id === "anthropic" && auth?.type === "oauth"
     l.debug("auth", { type: auth?.type ?? "api-key", provider: provider.id })
 
     const system: string[] = []
@@ -127,6 +128,26 @@ export namespace LLM {
       system.push(header, rest.join("\n"))
     }
 
+    // Anthropic's API validates the system prompt for OAuth-authenticated
+    // requests. Non-core system entries (anything besides the billing header
+    // and identity prefix) trigger a 400 rejection. Move them to the first
+    // user message where they are functionally equivalent.
+    const relocatedSystemText: string[] = []
+    if (isAnthropicOauth && system.length > 0) {
+      const BILLING_PREFIX = "x-anthropic-billing-header"
+      const IDENTITY_PREFIX = "You are Claude Code"
+      const kept: string[] = []
+      for (const entry of system) {
+        if (entry.startsWith(BILLING_PREFIX) || entry.startsWith(IDENTITY_PREFIX)) {
+          kept.push(entry)
+        } else if (entry.length > 0) {
+          relocatedSystemText.push(entry)
+        }
+      }
+      system.length = 0
+      system.push(...kept)
+    }
+
     const variant =
       !input.small && input.model.variants && input.user.variant ? input.model.variants[input.user.variant] : {}
     const base = input.small
@@ -147,6 +168,12 @@ export namespace LLM {
     }
 
     const isWorkflow = language instanceof GitLabWorkflowLanguageModel
+    // When system entries were relocated for Anthropic OAuth, prepend them
+    // to the first user message content so they remain visible to the model.
+    const relocatedPrefix: ModelMessage[] =
+      relocatedSystemText.length > 0
+        ? [{ role: "user" as const, content: relocatedSystemText.join("\n\n") }]
+        : []
     const messages = isOpenaiOauth
       ? input.messages
       : isWorkflow
@@ -158,6 +185,7 @@ export namespace LLM {
                 content: x,
               }),
             ),
+            ...relocatedPrefix,
             ...input.messages,
           ]
 
