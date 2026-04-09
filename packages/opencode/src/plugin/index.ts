@@ -11,6 +11,7 @@ import { NamedError } from "@opencode-ai/util/error"
 import { CopilotAuthPlugin } from "./github-copilot/copilot"
 import { gitlabAuthPlugin as GitlabAuthPlugin } from "opencode-gitlab-auth"
 import { PoeAuthPlugin } from "opencode-poe-auth"
+import { CloudflareAIGatewayAuthPlugin, CloudflareWorkersAuthPlugin } from "./cloudflare"
 import { Effect, Layer, ServiceMap, Stream } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
@@ -53,6 +54,8 @@ export namespace Plugin {
     CopilotAuthPlugin,
     GitlabAuthPlugin,
     PoeAuthPlugin,
+    CloudflareWorkersAuthPlugin,
+    CloudflareAIGatewayAuthPlugin,
   ]
 
   function isServerPlugin(value: unknown): value is PluginInstance {
@@ -118,7 +121,7 @@ export namespace Plugin {
                   Authorization: `Basic ${Buffer.from(`${Flag.OPENCODE_SERVER_USERNAME ?? "opencode"}:${Flag.OPENCODE_SERVER_PASSWORD}`).toString("base64")}`,
                 }
               : undefined,
-            fetch: async (...args) => Server.Default().fetch(...args),
+            fetch: async (...args) => Server.Default().app.fetch(...args),
           })
           const cfg = yield* config.get()
           const input: PluginInput = {
@@ -129,7 +132,8 @@ export namespace Plugin {
             get serverUrl(): URL {
               return Server.url ?? new URL("http://localhost:4096")
             },
-            $: Bun.$,
+            // @ts-expect-error
+            $: typeof Bun === "undefined" ? undefined : Bun.$,
           }
 
           for (const plugin of INTERNAL_PLUGINS) {
