@@ -21,7 +21,6 @@ import PROMPT_PLAN from "../session/prompt/plan.txt"
 import BUILD_SWITCH from "../session/prompt/build-switch.txt"
 import MAX_STEPS from "../session/prompt/max-steps.txt"
 import { ToolRegistry } from "../tool/registry"
-import { Runner } from "@/effect/runner"
 import { MCP } from "../mcp"
 import { LSP } from "../lsp"
 import { FileTime } from "../file/time"
@@ -50,6 +49,7 @@ import { Cause, Effect, Exit, Layer, Option, Scope, ServiceMap } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { TaskTool } from "@/tool/task"
+import { SessionRunState } from "./run-state"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -72,7 +72,6 @@ export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
 
   export interface Interface {
-    readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void, Session.BusyError>
     readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
     readonly prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts>
     readonly loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts>
@@ -115,54 +114,11 @@ export namespace SessionPrompt {
       // No API key needed — only used to construct provider tool definitions.
       let anthropic: ReturnType<typeof createAnthropic> | undefined
 
-      const state = yield* InstanceState.make(
-        Effect.fn("SessionPrompt.state")(function* () {
-          const runners = new Map<string, Runner<MessageV2.WithParts>>()
-          yield* Effect.addFinalizer(
-            Effect.fnUntraced(function* () {
-              yield* Effect.forEach(runners.values(), (r) => r.cancel, { concurrency: "unbounded", discard: true })
-              runners.clear()
-            }),
-          )
-          return { runners }
-        }),
-      )
-
-      const getRunner = (runners: Map<string, Runner<MessageV2.WithParts>>, sessionID: SessionID) => {
-        const existing = runners.get(sessionID)
-        if (existing) return existing
-        const runner = Runner.make<MessageV2.WithParts>(scope, {
-          onIdle: Effect.gen(function* () {
-            runners.delete(sessionID)
-            yield* status.set(sessionID, { type: "idle" })
-          }),
-          onBusy: status.set(sessionID, { type: "busy" }),
-          onInterrupt: lastAssistant(sessionID),
-          busy: () => {
-            throw new Session.BusyError(sessionID)
-          },
-        })
-        runners.set(sessionID, runner)
-        return runner
-      }
-
-      const assertNotBusy: (sessionID: SessionID) => Effect.Effect<void, Session.BusyError> = Effect.fn(
-        "SessionPrompt.assertNotBusy",
-      )(function* (sessionID: SessionID) {
-        const s = yield* InstanceState.get(state)
-        const runner = s.runners.get(sessionID)
-        if (runner?.busy) throw new Session.BusyError(sessionID)
-      })
+      const state = yield* SessionRunState.Service
 
       const cancel = Effect.fn("SessionPrompt.cancel")(function* (sessionID: SessionID) {
         log.info("cancel", { sessionID })
-        const s = yield* InstanceState.get(state)
-        const runner = s.runners.get(sessionID)
-        if (!runner || !runner.busy) {
-          yield* status.set(sessionID, { type: "idle" })
-          return
-        }
-        yield* runner.cancel
+        yield* state.cancel(sessionID)
       })
 
       const resolvePromptParts = Effect.fn("SessionPrompt.resolvePromptParts")(function* (template: string) {
@@ -403,7 +359,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         model: Provider.Model
         session: Session.Info
         tools?: Record<string, boolean>
-        processor: Pick<SessionProcessor.Handle, "message" | "partFromToolCall">
+        processor: Pick<SessionProcessor.Handle, "message" | "updateToolCall" | "completeToolCall">
         bypassAgentCheck: boolean
         messages: MessageV2.WithParts[]
       }) {
@@ -420,10 +376,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           messages: input.messages,
           metadata: (val) =>
             Effect.runPromise(
-              Effect.gen(function* () {
-                const match = input.processor.partFromToolCall(options.toolCallId)
-                if (!match || !["running", "pending"].includes(match.state.status)) return
-                yield* sessions.updatePart({
+              input.processor.updateToolCall(options.toolCallId, (match) => {
+                if (!["running", "pending"].includes(match.state.status)) return match
+                return {
                   ...match,
                   state: {
                     title: val.title,
@@ -432,7 +387,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     input: args,
                     time: { start: Date.now() },
                   },
-                })
+                }
               }),
             ),
           ask: (req) =>
@@ -485,6 +440,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
                     output,
                   )
+                  if (options.abortSignal?.aborted) {
+                    yield* input.processor.completeToolCall(options.toolCallId, output)
+                  }
                   return output
                 }),
               )
@@ -570,7 +528,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   ...(truncated.truncated && { outputPath: truncated.outputPath }),
                 }
 
-                return {
+                const output = {
                   title: "",
                   metadata,
                   output: truncated.content,
@@ -582,6 +540,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   })),
                   content: result.content,
                 }
+                if (opts.abortSignal?.aborted) {
+                  yield* input.processor.completeToolCall(opts.toolCallId, output)
+                }
+                return output
               }),
             )
           tools[key] = item
@@ -801,7 +763,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         } satisfies MessageV2.TextPart)
       })
 
-      const shellImpl = Effect.fn("SessionPrompt.shellImpl")(function* (input: ShellInput, signal: AbortSignal) {
+      const shellImpl = Effect.fn("SessionPrompt.shellImpl")(function* (input: ShellInput) {
         const ctx = yield* InstanceState.context
         const session = yield* sessions.get(input.sessionID)
         if (session.revert) {
@@ -1565,7 +1527,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 Effect.promise(() => SystemPrompt.skills(agent)),
                 Effect.promise(() => SystemPrompt.environment(model)),
                 instruction.system().pipe(Effect.orDie),
-                Effect.promise(() => MessageV2.toModelMessages(msgs, model)),
+                MessageV2.toModelMessagesEffect(msgs, model),
               ])
               const system = [...env, ...(skills ? [skills] : []), ...instructions]
               const format = lastUser.format ?? { type: "text" as const }
@@ -1626,16 +1588,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
         "SessionPrompt.loop",
       )(function* (input: z.infer<typeof LoopInput>) {
-        const s = yield* InstanceState.get(state)
-        const runner = getRunner(s.runners, input.sessionID)
-        return yield* runner.ensureRunning(runLoop(input.sessionID))
+        return yield* state.ensureRunning(input.sessionID, lastAssistant(input.sessionID), runLoop(input.sessionID))
       })
 
       const shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.shell")(
         function* (input: ShellInput) {
-          const s = yield* InstanceState.get(state)
-          const runner = getRunner(s.runners, input.sessionID)
-          return yield* runner.startShell((signal) => shellImpl(input, signal))
+          return yield* state.startShell(input.sessionID, lastAssistant(input.sessionID), shellImpl(input))
         },
       )
 
@@ -1756,7 +1714,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       })
 
       return Service.of({
-        assertNotBusy,
         cancel,
         prompt,
         loop,
@@ -1770,6 +1727,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
   const defaultLayer = Layer.unwrap(
     Effect.sync(() =>
       layer.pipe(
+        Layer.provide(SessionRunState.layer),
         Layer.provide(SessionStatus.layer),
         Layer.provide(SessionCompaction.defaultLayer),
         Layer.provide(SessionProcessor.defaultLayer),
@@ -1793,10 +1751,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     ),
   )
   const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function assertNotBusy(sessionID: SessionID) {
-    return runPromise((svc) => svc.assertNotBusy(SessionID.zod.parse(sessionID)))
-  }
 
   export const PromptInput = z.object({
     sessionID: SessionID.zod,
