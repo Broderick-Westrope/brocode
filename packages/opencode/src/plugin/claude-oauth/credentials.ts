@@ -1,6 +1,6 @@
 import path from "path"
 import os from "os"
-import { Log } from "../../util/log"
+import * as Log from "@opencode-ai/core/util/log"
 
 const log = Log.create({ service: "plugin.claude-oauth.credentials" })
 

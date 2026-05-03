@@ -1,6 +1,6 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 import { OAUTH_DUMMY_KEY } from "../../auth"
-import { Log } from "../../util/log"
+import * as Log from "@opencode-ai/core/util/log"
 import * as credentials from "./credentials"
 import * as billing from "./billing"
 
