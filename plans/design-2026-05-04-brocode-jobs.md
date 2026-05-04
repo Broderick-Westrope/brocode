@@ -2,14 +2,14 @@
 
 **Problem:** BroCode sessions are terminal-bound. If you close the terminal, the agent stops. There's no way to kick off a task, walk away, and come back later. The existing `delegate` tool solves part of this but uses API keys (expensive) and has no reattach capability.
 
-**Goal:** BroCode gains a "jobs" system — background agent sessions that run in git worktrees, survive terminal close, support attach/detach, and use your Claude subscription (not API keys). Optionally, jobs can run inside Docker containers for isolation. Normal BroCode usage is unaffected.
+**Goal:** BroCode gains a "jobs" system — background agent sessions that run in git worktrees, survive terminal close, support attach/detach, and use any BroCode-supported provider (including Claude subscription). Optionally, jobs can run inside Docker containers for isolation. Normal BroCode usage is unaffected.
 
 **Scope:**
 - In scope: background job lifecycle, attach/detach, worktree management, optional Docker isolation
 - Deferred to v2: notifications, idle detection, multi-machine/remote execution, CI integration
 
 **Constraints:**
-- Must use Claude subscription auth (not API keys)
+- Must work with any provider BroCode supports (Claude subscription, API keys, OpenAI, etc.) — no provider-specific coupling
 - Must not change existing BroCode behavior when `jobs` subcommand isn't used
 - Must work on macOS (primary) and Linux
 - Built with Bun (matches BroCode's runtime)
@@ -149,7 +149,7 @@ Location: `~/.config/brocode/jobs.db` (separate from per-project DBs since jobs 
 3. Find an available port (let OS assign with `:0`, capture from serve startup)
 4. Spawn the serve process:
    - **Bare:** `brocode serve --port <port>` as a detached background process in the worktree
-   - **Docker:** `docker run -d -p <port>:<port> -v <worktree>:/repo -v ~/.claude:/home/agent/.claude:ro brocode-jobs serve --port <port>`
+   - **Docker:** `docker run -d -p <port>:<port> -v <worktree>:/repo -v ~/.opencode:/home/agent/.opencode brocode-jobs serve --port <port>` (plus provider-specific auth mounts as needed)
 5. Connect via SDK client, create a session, send the prompt (with auto-approve permissions)
 6. Disconnect the SDK client (the serve process continues)
 7. Write job metadata to the registry
@@ -194,15 +194,17 @@ Each job gets a worktree:
 - On `brocode jobs rm`: `git worktree remove` + optionally `git branch -d`
 - Worktrees persist after job completion so the user can inspect results
 
-### 6. OAuth Credential Safety
+### 6. Credential Safety
 
-**Risk:** Multiple parallel `serve` processes sharing `~/.claude/.credentials.json` may race on token refresh (no file locking in BroCode's credential code — 30-second in-memory cache is per-process only).
+Jobs inherit whatever auth the user has configured in BroCode. The jobs system is provider-agnostic — it spawns `brocode serve`, which loads credentials from BroCode's standard auth storage (`~/.opencode/data/auth.json` and provider-specific files like `~/.claude/.credentials.json` for Claude OAuth).
 
-**v1 mitigation:** Accept the race condition risk — it's unlikely in practice with 2-3 parallel jobs. If it becomes a problem, v2 adds a credential coordinator.
+**Race condition risk (OAuth providers):** Multiple parallel `serve` processes sharing credential files may race on token refresh (no file locking — 30-second in-memory cache is per-process only). This is unlikely in practice with 2-3 parallel jobs. If it becomes a problem, v2 adds a credential coordinator.
 
-**Docker note:** Auth credentials are mounted read-only into Docker containers. If a refresh is needed, the host's credential file is the source of truth. The container's `serve` process reads from the mount but cannot write back. This means Docker jobs may fail on token expiry — the user re-authenticates on the host and the mount reflects the new token. This is acceptable for v1.
+**API key providers:** No race condition risk — keys don't expire or refresh.
 
-**Monitoring:** If a job fails with "credentials expired," the user re-authenticates (`claude` CLI) and restarts the job.
+**Docker note:** Auth credential directories are mounted into Docker containers. For OAuth providers, if a refresh writes back to the credential file, the container needs write access to the mount. For API key providers, read-only mounts suffice. v1 mounts auth read-write for simplicity; v2 can tighten this.
+
+**Monitoring:** If a job fails with an auth error, the user re-authenticates on the host and restarts the job.
 
 ## Open Questions (to resolve during implementation)
 
@@ -211,7 +213,7 @@ Each job gets a worktree:
 3. **Instance bootstrapping:** `brocode serve` in a worktree needs to initialize a full `InstanceState`. Does it auto-detect the repo context from the worktree, or does it need flags?
 4. **Job naming:** Auto-generate ID from prompt slug + random suffix (e.g., `auth-flow-a1b2c3`)? Or sequential numbering?
 5. **Worktree cleanup:** `brocode jobs rm` should prompt before deleting a worktree with uncommitted changes.
-6. **Docker credential refresh:** Since auth is mounted read-only, Docker jobs rely on the host having valid tokens. If a token expires mid-job and needs refresh, the container process can't write the new token. Need to confirm: does the OAuth flow work with read-only credential files? If not, mount read-write or use a different strategy.
+6. **Docker auth mounts:** Which credential directories need to be mounted for each provider? BroCode's auth storage (`~/.opencode/data/`) is the baseline; Claude OAuth also needs `~/.claude/`. Need to enumerate provider-specific paths or mount a single auth directory.
 
 ## v2 Enhancements (deferred)
 
@@ -227,6 +229,7 @@ Each job gets a worktree:
 - `packages/opencode/src/cli/cmd/serve.ts` — existing headless server command
 - `packages/opencode/src/cli/cmd/run.ts` — existing non-interactive execution + `--attach`
 - `packages/opencode/src/plugin/claude-oauth/credentials.ts` — Claude OAuth credential handling (30s cache, no file locking)
+- `packages/opencode/src/provider/auth.ts` — Provider auth method orchestration (supports multiple auth types)
 - `packages/opencode/src/auth/index.ts` — Auth storage (`~/.opencode/data/auth.json`)
 - `packages/opencode/` — BroCode/OpenCode core (TUI, session management, providers)
 - `packages/sdk/js/src/v2/client.ts` — SDK client factory for connecting to serve
