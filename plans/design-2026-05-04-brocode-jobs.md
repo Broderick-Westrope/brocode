@@ -56,9 +56,13 @@ Both are transparent to `run --attach`. Docker is optional — if it's not insta
 - Reproducible environment — consistent tool versions regardless of host
 - Path toward remote execution (Docker runs anywhere)
 
-### 4. Permissions: auto-approve for background jobs
+### 4. Permissions: pause-and-notify on permission requests
 
-Background jobs will deadlock if they hit a permission prompt with no TUI attached. For v1, jobs run with auto-approve (equivalent to `--dangerously-skip-permissions`). The user explicitly starts a job knowing it will run unattended — this is an implicit trust grant. Docker isolation makes this safer. A permission ruleset system can be added in v2.
+**Bare jobs (no Docker):** Use the same permission settings the user already has configured in BroCode. If the agent hits a permission request that requires approval, the job pauses and waits. The user gets notified (v2, or discovers it via `jobs ls` showing "waiting" status) and attaches to the job to grant or deny permission. This matches the mental model of "same as running in my terminal, but I can walk away."
+
+**Docker jobs:** More lenient defaults since the agent is sandboxed. Filesystem and shell operations within the container are pre-approved. Network access and anything that escapes the container still require approval. Exact permission boundaries TBD during implementation based on BroCode's existing permission categories.
+
+**Job status:** The registry tracks a `"waiting"` status when a job is blocked on a permission request, distinct from `"running"` and `"done"`. `brocode jobs ls` surfaces this clearly so the user knows which jobs need attention.
 
 ### 5. Attach/detach via existing transcripts
 
@@ -133,7 +137,7 @@ jobs table:
   port          INTEGER             -- serve port
   pid           INTEGER             -- serve process PID
   session_id    TEXT                -- BroCode session ID
-  status        TEXT                -- "running" | "done" | "failed" | "stopped"
+  status        TEXT                -- "running" | "waiting" | "done" | "failed" | "stopped"
   docker        INTEGER             -- 0 or 1
   container_id  TEXT                -- Docker container ID (nullable)
   created_at    INTEGER             -- unix timestamp
@@ -150,8 +154,8 @@ Location: `~/.config/brocode/jobs.db` (separate from per-project DBs since jobs 
 4. Spawn the serve process:
    - **Bare:** `brocode serve --port <port>` as a detached background process in the worktree
    - **Docker:** `docker run -d -p <port>:<port> -v <worktree>:/repo -v ~/.opencode:/home/agent/.opencode brocode-jobs serve --port <port>` (plus provider-specific auth mounts as needed)
-5. Connect via SDK client, create a session, send the prompt (with auto-approve permissions)
-6. Disconnect the SDK client (the serve process continues)
+5. Connect via SDK client, create a session, send the prompt
+6. Start a lightweight background event watcher that subscribes to the `serve` event stream and updates the registry on status changes (e.g., `permission.asked` → set status to `"waiting"`, session complete → set status to `"done"`)
 7. Write job metadata to the registry
 8. Print: `Job <id> started on branch jobs/<id>`
 
@@ -167,7 +171,19 @@ Location: `~/.config/brocode/jobs.db` (separate from per-project DBs since jobs 
 2. `serve` process continues running
 3. TUI exits or returns to shell
 
-### 4. Docker Image
+### 4. Job Event Watcher
+
+Each job spawns a lightweight background process (or thread) that subscribes to the `serve` instance's event stream via the SDK client. Its only responsibilities:
+
+- **`permission.asked` event:** Update registry status to `"waiting"`. (v2: send notification.)
+- **Session complete / error:** Update registry status to `"done"` or `"failed"`. Record `completed_at`.
+- **`serve` process exits unexpectedly:** Detect via PID/container check, mark as `"failed"`.
+
+The watcher is minimal — it holds an open SSE connection and writes to SQLite on state transitions. If the watcher itself dies, `brocode jobs ls` falls back to PID/container liveness checks and the status just won't update in real-time until the user runs `attach` or `ls`.
+
+**When the user attaches to a `"waiting"` job:** The TUI shows the pending permission request. The user approves or denies via the normal permission UI. The SDK client sends the `permission.reply`, the agent resumes, and the watcher updates status back to `"running"`.
+
+### 5. Docker Image
 
 A Dockerfile for jobs, built via `brocode jobs build-image`:
 
@@ -220,7 +236,7 @@ Jobs inherit whatever auth the user has configured in BroCode. The jobs system i
 - **Notifications:** macOS/Linux notifications when jobs complete or fail. Monitor process exit and fire `osascript` / `notify-send`.
 - **Idle detection:** Track agent activity via session events (not raw stdout). Notify if agent appears stuck.
 - **Remote execution:** Run `serve` on a remote machine, TUI connects over network. Enables true "close laptop" scenarios.
-- **Permission rulesets:** Per-job permission configuration instead of blanket auto-approve.
+- **Permission rulesets:** Per-job permission configuration (e.g., pre-approve specific tool categories, deny others) to reduce how often jobs enter `"waiting"` state.
 - **Job queuing:** If Claude rate limits become an issue, queue jobs and run N at a time.
 - **Docker image customization:** Per-repo Dockerfiles for project-specific tools (like Sandcastle's `.sandcastle/Dockerfile` pattern).
 
