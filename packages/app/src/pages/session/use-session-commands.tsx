@@ -25,6 +25,8 @@ export type SessionCommandContext = {
   setActiveMessage: (message: UserMessage | undefined) => void
   focusInput: () => void
   review?: () => boolean
+  revert: (input: { sessionID: string; messageID: string }) => Promise<void> | undefined
+  restore: (messageID: string) => Promise<void> | undefined
 }
 
 const withCategory = (category: string) => {
@@ -294,11 +296,13 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       await sdk.client.session.abort({ sessionID }).catch(() => {})
     }
 
-    const revert = info()?.revert?.messageID
-    const message = findLast(userMessages(), (x) => !revert || x.id < revert)
+    const revertID = info()?.revert?.messageID
+    const message = findLast(userMessages(), (x) => !revertID || x.id < revertID)
     if (!message) return
 
-    await sdk.client.session.revert({ sessionID, messageID: message.id })
+    const result = actions.revert({ sessionID, messageID: message.id })
+    if (!result) return
+    await result
     const parts = sync.data.part[message.id]
     if (parts) {
       const restored = extractPromptFromParts(parts, { directory: sdk.directory })
@@ -316,16 +320,16 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     const revertMessageID = info()?.revert?.messageID
     if (!revertMessageID) return
 
+    const result = actions.restore(revertMessageID)
+    if (!result) return
+    await result
     const next = userMessages().find((x) => x.id > revertMessageID)
     if (!next) {
-      await sdk.client.session.unrevert({ sessionID })
-      prompt.reset()
       const last = findLast(userMessages(), (x) => x.id >= revertMessageID)
       setActiveMessage(last)
       return
     }
 
-    await sdk.client.session.revert({ sessionID, messageID: next.id })
     const prev = findLast(userMessages(), (x) => x.id < next.id)
     setActiveMessage(prev)
   }

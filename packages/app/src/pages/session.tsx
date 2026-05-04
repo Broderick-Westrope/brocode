@@ -1032,13 +1032,6 @@ export default function Page() {
     inputRef?.focus()
   }
 
-  useSessionCommands({
-    navigateMessageByOffset,
-    setActiveMessage,
-    focusInput,
-    review: reviewTab,
-  })
-
   const openReviewFile = createOpenReviewFile({
     showAllFiles,
     tabForPath: file.tab,
@@ -1697,6 +1690,15 @@ export default function Page() {
     if (!params.id || reverting()) return
     return restoreMutation.mutateAsync(id)
   }
+
+  useSessionCommands({
+    navigateMessageByOffset,
+    setActiveMessage,
+    focusInput,
+    review: reviewTab,
+    revert,
+    restore,
+  })
 
   const rolled = createMemo(() => {
     const id = revertMessageID()
