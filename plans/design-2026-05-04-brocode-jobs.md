@@ -99,10 +99,9 @@ Job Registry (SQLite):
 **How it works:**
 1. `brocode jobs new "prompt"` creates a git worktree, spawns `brocode serve` (bare or Docker), sends the prompt via SDK client, then detaches
 2. The `serve` process runs in the background (detached process or Docker container)
-3. `brocode jobs ls` reads the registry, checks PIDs/containers for liveness
-4. `brocode jobs attach <id>` looks up the port, connects via SDK client, renders TUI
+3. `brocode jobs ls` reads the registry, checks PID/container liveness, and queries each live `serve` instance via SDK for current status (running, waiting on permission, idle, etc.)
+4. `brocode jobs attach <id>` looks up the port, connects via SDK client, renders TUI. If a permission request is pending, the TUI shows it immediately for the user to respond.
 5. Detaching disconnects the SDK client — the `serve` process keeps running
-6. On process exit, next `jobs ls` or `jobs attach` detects the dead PID/container and updates status
 
 ## CLI Surface
 
@@ -137,7 +136,7 @@ jobs table:
   port          INTEGER             -- serve port
   pid           INTEGER             -- serve process PID
   session_id    TEXT                -- BroCode session ID
-  status        TEXT                -- "running" | "waiting" | "done" | "failed" | "stopped"
+  status        TEXT                -- "active" | "done" | "failed" (updated on attach/ls)
   docker        INTEGER             -- 0 or 1
   container_id  TEXT                -- Docker container ID (nullable)
   created_at    INTEGER             -- unix timestamp
@@ -155,9 +154,8 @@ Location: `~/.config/brocode/jobs.db` (separate from per-project DBs since jobs 
    - **Bare:** `brocode serve --port <port>` as a detached background process in the worktree
    - **Docker:** `docker run -d -p <port>:<port> -v <worktree>:/repo -v ~/.opencode:/home/agent/.opencode brocode-jobs serve --port <port>` (plus provider-specific auth mounts as needed)
 5. Connect via SDK client, create a session, send the prompt
-6. Start a lightweight background event watcher that subscribes to the `serve` event stream and updates the registry on status changes (e.g., `permission.asked` → set status to `"waiting"`, session complete → set status to `"done"`)
-7. Write job metadata to the registry
-8. Print: `Job <id> started on branch jobs/<id>`
+6. Write job metadata to the registry
+7. Print: `Job <id> started on branch jobs/<id>`
 
 ### 3. Attach/Detach
 
@@ -171,19 +169,7 @@ Location: `~/.config/brocode/jobs.db` (separate from per-project DBs since jobs 
 2. `serve` process continues running
 3. TUI exits or returns to shell
 
-### 4. Job Event Watcher
-
-Each job spawns a lightweight background process (or thread) that subscribes to the `serve` instance's event stream via the SDK client. Its only responsibilities:
-
-- **`permission.asked` event:** Update registry status to `"waiting"`. (v2: send notification.)
-- **Session complete / error:** Update registry status to `"done"` or `"failed"`. Record `completed_at`.
-- **`serve` process exits unexpectedly:** Detect via PID/container check, mark as `"failed"`.
-
-The watcher is minimal — it holds an open SSE connection and writes to SQLite on state transitions. If the watcher itself dies, `brocode jobs ls` falls back to PID/container liveness checks and the status just won't update in real-time until the user runs `attach` or `ls`.
-
-**When the user attaches to a `"waiting"` job:** The TUI shows the pending permission request. The user approves or denies via the normal permission UI. The SDK client sends the `permission.reply`, the agent resumes, and the watcher updates status back to `"running"`.
-
-### 5. Docker Image
+### 4. Docker Image
 
 A Dockerfile for jobs, built via `brocode jobs build-image`:
 
