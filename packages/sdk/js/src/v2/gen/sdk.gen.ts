@@ -121,6 +121,10 @@ import type {
   QuestionReplyResponses,
   SessionAbortErrors,
   SessionAbortResponses,
+  SessionBranchSummaryErrors,
+  SessionBranchSummaryResponses,
+  SessionBranchToErrors,
+  SessionBranchToResponses,
   SessionChildrenErrors,
   SessionChildrenResponses,
   SessionCloneErrors,
@@ -3426,6 +3430,101 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/clone",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Branch to message
+   *
+   * Set the session leaf to a specific message, switching the active branch in the tree.
+   */
+  public branchTo<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      messageID?: string
+      summary?: string
+      fromLeafID?: string
+      model?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "messageID" },
+            { in: "body", key: "summary" },
+            { in: "body", key: "fromLeafID" },
+            { in: "body", key: "model" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionBranchToResponses, SessionBranchToErrors, ThrowOnError>({
+      url: "/session/{sessionID}/branch_to",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Generate branch summary
+   *
+   * Generate a summary of what was attempted on an abandoned branch before switching to a new branch.
+   */
+  public branchSummary<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      fromLeafID?: string
+      toAncestorID?: string
+      model?: {
+        id: string
+        providerID: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "fromLeafID" },
+            { in: "body", key: "toAncestorID" },
+            { in: "body", key: "model" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionBranchSummaryResponses,
+      SessionBranchSummaryErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/branch-summary",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 

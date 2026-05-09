@@ -8,6 +8,7 @@ import { PermissionID } from "@/permission/schema"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
 import { SessionCompaction } from "@/session/compaction"
+import { BranchSummary } from "@/session/branch-summary"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionRevert } from "@/session/revert"
@@ -24,6 +25,8 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
 import {
+  BranchSummaryPayload,
+  BranchToPayload,
   CommandPayload,
   DiffQuery,
   ForkPayload,
@@ -46,6 +49,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const promptSvc = yield* SessionPrompt.Service
     const revertSvc = yield* SessionRevert.Service
     const compactSvc = yield* SessionCompaction.Service
+    const branchSummarySvc = yield* BranchSummary.Service
     const runState = yield* SessionRunState.Service
     const agentSvc = yield* Agent.Service
     const permissionSvc = yield* Permission.Service
@@ -196,6 +200,37 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
 
     const clone = Effect.fn("SessionHttpApi.clone")(function* (ctx: { params: { sessionID: SessionID } }) {
       return yield* SessionError.mapStorageNotFound(session.clone({ sessionID: ctx.params.sessionID }))
+    })
+
+    const branchTo = Effect.fn("SessionHttpApi.branchTo")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: typeof BranchToPayload.Type
+    }) {
+      yield* SessionError.mapStorageNotFound(
+        session.branchTo({
+          sessionID: ctx.params.sessionID,
+          messageID: ctx.payload.messageID,
+          summary: ctx.payload.summary,
+          fromLeafID: ctx.payload.fromLeafID,
+          model: ctx.payload.model,
+        }),
+      )
+      return HttpApiSchema.NoContent.make()
+    })
+
+    const branchSummary = Effect.fn("SessionHttpApi.branchSummary")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: typeof BranchSummaryPayload.Type
+    }) {
+      yield* SessionError.mapStorageNotFound(session.get(ctx.params.sessionID))
+      const text = yield* branchSummarySvc.generate({
+        sessionID: ctx.params.sessionID,
+        fromLeafID: ctx.payload.fromLeafID,
+        toAncestorID: ctx.payload.toAncestorID,
+        model: ctx.payload.model,
+      })
+      if (!text) return yield* new HttpApiError.BadRequest({})
+      return { summary: text }
     })
 
     const abort = Effect.fn("SessionHttpApi.abort")(function* (ctx: { params: { sessionID: SessionID } }) {
@@ -369,6 +404,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("update", update)
       .handle("fork", fork)
       .handle("clone", clone)
+      .handle("branchTo", branchTo)
+      .handle("branchSummary", branchSummary)
       .handle("abort", abort)
       .handle("init", init)
       .handle("share", share)

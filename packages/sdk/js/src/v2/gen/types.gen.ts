@@ -697,6 +697,16 @@ export type CompactionPart = {
   tail_start_id?: string
 }
 
+export type BranchSummaryPart = {
+  id: string
+  sessionID: string
+  messageID: string
+  type: "branch_summary"
+  summary: string
+  fromLeafID: string
+  model: string
+}
+
 export type Part =
   | TextPart
   | SubtaskPart
@@ -710,6 +720,7 @@ export type Part =
   | AgentPart
   | RetryPart
   | CompactionPart
+  | BranchSummaryPart
 
 export type PermissionAction = "allow" | "deny" | "ask"
 
@@ -1147,6 +1158,7 @@ export type Config = {
   enabled_providers?: Array<string>
   model?: string
   small_model?: string
+  summarisation_model?: string
   default_agent?: string
   username?: string
   mode?: {
@@ -5529,6 +5541,88 @@ export type SessionCloneResponses = {
 }
 
 export type SessionCloneResponse = SessionCloneResponses[keyof SessionCloneResponses]
+
+export type SessionBranchToData = {
+  body?: {
+    messageID: string
+    summary?: string
+    fromLeafID?: string
+    model?: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/branch_to"
+}
+
+export type SessionBranchToErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionBranchToError = SessionBranchToErrors[keyof SessionBranchToErrors]
+
+export type SessionBranchToResponses = {
+  /**
+   * 200
+   */
+  204: void
+}
+
+export type SessionBranchToResponse = SessionBranchToResponses[keyof SessionBranchToResponses]
+
+export type SessionBranchSummaryData = {
+  body?: {
+    fromLeafID: string
+    toAncestorID: string
+    model?: {
+      id: string
+      providerID: string
+    }
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/branch-summary"
+}
+
+export type SessionBranchSummaryErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionBranchSummaryError = SessionBranchSummaryErrors[keyof SessionBranchSummaryErrors]
+
+export type SessionBranchSummaryResponses = {
+  /**
+   * Generated branch summary
+   */
+  200: {
+    summary: string
+  }
+}
+
+export type SessionBranchSummaryResponse = SessionBranchSummaryResponses[keyof SessionBranchSummaryResponses]
 
 export type SessionAbortData = {
   body?: never

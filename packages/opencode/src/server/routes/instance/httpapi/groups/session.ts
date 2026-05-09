@@ -50,6 +50,23 @@ export const UpdatePayload = Schema.Struct({
   ),
 })
 export const ForkPayload = Schema.Struct(Struct.omit(Session.ForkInput.fields, ["sessionID"]))
+export const BranchToPayload = Schema.Struct({
+  messageID: MessageID,
+  summary: Schema.optional(Schema.String),
+  fromLeafID: Schema.optional(MessageID),
+  model: Schema.optional(Schema.String),
+})
+export const BranchSummaryPayload = Schema.Struct({
+  fromLeafID: MessageID,
+  toAncestorID: MessageID,
+  model: Schema.optional(
+    Schema.Struct({
+      id: Schema.String,
+      providerID: Schema.String,
+    }),
+  ),
+})
+export const BranchSummaryResponse = Schema.Struct({ summary: Schema.String })
 export const InitPayload = Schema.Struct({
   modelID: ModelID,
   providerID: ProviderID,
@@ -82,6 +99,8 @@ export const SessionPaths = {
   update: `${root}/:sessionID`,
   fork: `${root}/:sessionID/fork`,
   clone: `${root}/:sessionID/clone`,
+  branchTo: `${root}/:sessionID/branch_to`,
+  branchSummary: `${root}/:sessionID/branch-summary`,
   abort: `${root}/:sessionID/abort`,
   share: `${root}/:sessionID/share`,
   init: `${root}/:sessionID/init`,
@@ -245,6 +264,31 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.clone",
             summary: "Clone session",
             description: "Create a linear clone of a session following the ancestor path to the current leaf.",
+          }),
+        ),
+        HttpApiEndpoint.post("branchTo", SessionPaths.branchTo, {
+          params: { sessionID: SessionID },
+          payload: BranchToPayload,
+          success: described(HttpApiSchema.NoContent, "200"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.branchTo",
+            summary: "Branch to message",
+            description: "Set the session leaf to a specific message, switching the active branch in the tree.",
+          }),
+        ),
+        HttpApiEndpoint.post("branchSummary", SessionPaths.branchSummary, {
+          params: { sessionID: SessionID },
+          payload: BranchSummaryPayload,
+          success: described(BranchSummaryResponse, "Generated branch summary"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.branchSummary",
+            summary: "Generate branch summary",
+            description:
+              "Generate a summary of what was attempted on an abandoned branch before switching to a new branch.",
           }),
         ),
         HttpApiEndpoint.post("abort", SessionPaths.abort, {

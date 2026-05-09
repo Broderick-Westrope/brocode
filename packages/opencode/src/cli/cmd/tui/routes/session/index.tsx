@@ -62,6 +62,7 @@ import type { PromptInfo } from "../../component/prompt/history"
 import { DialogConfirm } from "@tui/ui/dialog-confirm"
 import { DialogTimeline } from "./dialog-timeline"
 import { DialogForkFromTimeline } from "./dialog-fork-from-timeline"
+import { DialogTree } from "./dialog-tree"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
 import { Sidebar } from "./sidebar"
 import { SubagentFooter } from "./subagent-footer.tsx"
@@ -487,6 +488,31 @@ export function Session() {
               if (child) scroll.scrollBy(child.y - scroll.y - 1)
             }}
             sessionID={route.sessionID}
+          />
+        ))
+      },
+    },
+    {
+      title: "Session tree",
+      value: "session.tree",
+      category: "Session",
+      slash: {
+        name: "tree",
+      },
+      onSelect: (dialog) => {
+        const currentSession = session()
+        if (!currentSession) return
+        dialog.replace(() => (
+          <DialogTree
+            sessionID={currentSession.id}
+            leafID={currentSession.leafID ?? undefined}
+            onBranch={async (messageID, promptInfo) => {
+              await sdk.client.session.branchTo({
+                sessionID: currentSession.id,
+                messageID,
+              })
+              if (promptInfo) prompt?.set(promptInfo)
+            }}
           />
         ))
       },
