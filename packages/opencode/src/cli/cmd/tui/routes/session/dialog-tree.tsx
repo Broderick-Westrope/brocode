@@ -105,5 +105,11 @@ export function DialogTree(props: {
     return result
   })
 
-  return <DialogSelect title="Session Tree" options={options()} />
+  return (
+    <DialogSelect
+      title="Session Tree"
+      options={options()}
+      placeholder="Filter messages · Enter to select · Esc to cancel"
+    />
+  )
 }

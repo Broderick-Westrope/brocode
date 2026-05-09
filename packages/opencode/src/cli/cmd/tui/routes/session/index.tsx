@@ -135,7 +135,24 @@ export function Session() {
       .filter((x) => x.parentID === parentID || x.id === parentID)
       .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   })
-  const messages = createMemo(() => sync.data.message[route.sessionID] ?? [])
+  const allMessages = createMemo(() => sync.data.message[route.sessionID] ?? [])
+  const messages = createMemo(() => {
+    const all = allMessages()
+    const leafID = session()?.leafID
+    if (!leafID) return all
+    // Build ancestor set by walking from leaf to root via treeParentID
+    const msgMap = new Map(all.map((m) => [m.id, m]))
+    const ancestorSet = new Set<string>()
+    let current: string | undefined = leafID
+    while (current) {
+      if (ancestorSet.has(current)) break
+      ancestorSet.add(current)
+      current = msgMap.get(current)?.treeParentID
+    }
+    // If no messages have treeParentID (legacy session), show all
+    if (ancestorSet.size <= 1 && !msgMap.get(leafID)?.treeParentID) return all
+    return all.filter((m) => ancestorSet.has(m.id))
+  })
   const permissions = createMemo(() => {
     if (session()?.parentID) return []
     return children().flatMap((x) => sync.data.permission[x.id] ?? [])
