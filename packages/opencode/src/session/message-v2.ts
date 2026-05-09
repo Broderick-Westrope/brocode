@@ -843,6 +843,12 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
             text: "What did we do so far?",
           })
         }
+        if (part.type === "branch_summary") {
+          userMessage.parts.push({
+            type: "text",
+            text: `[Branch summary — previous approach: ${part.summary}]`,
+          })
+        }
         if (part.type === "subtask") {
           userMessage.parts.push({
             type: "text",
@@ -1277,6 +1283,7 @@ export function getAncestorPath(sessionID: SessionID, leafID?: MessageID): Messa
       .select({ id: MessageTable.id, tree_parent_id: MessageTable.tree_parent_id })
       .from(MessageTable)
       .where(eq(MessageTable.session_id, sessionID))
+      .orderBy(MessageTable.time_created)
       .all(),
   )
 
@@ -1284,17 +1291,7 @@ export function getAncestorPath(sessionID: SessionID, leafID?: MessageID): Messa
 
   // Legacy fallback: no tree data — return all IDs ordered by time_created ASC
   const hasTreeData = rows.some((row) => row.tree_parent_id !== null)
-  if (!hasTreeData) {
-    const orderedRows = Database.use((db) =>
-      db
-        .select({ id: MessageTable.id })
-        .from(MessageTable)
-        .where(eq(MessageTable.session_id, sessionID))
-        .orderBy(MessageTable.time_created)
-        .all(),
-    )
-    return orderedRows.map((row) => row.id)
-  }
+  if (!hasTreeData) return rows.map((row) => row.id as MessageID)
 
   const parentMap = new Map<string, string | null>()
   for (const row of rows) {
@@ -1316,8 +1313,11 @@ export function getAncestorPath(sessionID: SessionID, leafID?: MessageID): Messa
   if (!startID) return []
 
   const path: MessageID[] = []
+  const visited = new Set<string>()
   let current: string | undefined = startID
   while (current) {
+    if (visited.has(current)) break
+    visited.add(current)
     path.push(current as MessageID)
     const parent = parentMap.get(current)
     if (parent === undefined || parent === null) break

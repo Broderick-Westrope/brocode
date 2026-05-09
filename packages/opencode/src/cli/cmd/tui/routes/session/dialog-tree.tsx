@@ -52,10 +52,17 @@ export function DialogTree(props: {
 
         let preview = ""
         if (msg.role === "user") {
-          const textPart = (sync.data.part[msg.id] ?? []).find(
-            (p) => p.type === "text" && !p.synthetic && !p.ignored,
-          ) as TextPart | undefined
-          preview = textPart?.text?.replace(/\n/g, " ")?.slice(0, 60) ?? "[no text]"
+          const parts = sync.data.part[msg.id] ?? []
+          const isCompaction = parts.some((p) => p.type === "compaction")
+          const isBranchSummary = parts.some((p) => p.type === "branch_summary")
+          if (isCompaction) {
+            preview = "[compaction]"
+          } else if (isBranchSummary) {
+            preview = "[branch summary]"
+          } else {
+            const textPart = parts.find((p) => p.type === "text" && !p.synthetic && !p.ignored) as TextPart | undefined
+            preview = textPart?.text?.replace(/\n/g, " ")?.slice(0, 60) ?? "[no text]"
+          }
         } else {
           const parts = sync.data.part[msg.id] ?? []
           const toolPart = parts.find((p) => p.type === "tool") as ToolPart | undefined

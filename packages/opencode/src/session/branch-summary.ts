@@ -7,6 +7,9 @@ import { ProviderID, ModelID } from "@/provider/schema"
 import { SessionID, MessageID } from "./schema"
 import { MessageV2 } from "./message-v2"
 import { LLM } from "./llm"
+import * as Log from "@opencode-ai/core/util/log"
+
+const log = Log.create({ service: "branch-summary" })
 
 const PROMPT =
   "Summarise what was attempted on this branch and the outcome in 2-3 sentences. Focus on: what was tried, what worked, what didn't, and why the branch was abandoned."
@@ -43,12 +46,10 @@ export const layer = Layer.effect(
         const ancestorIdx = ancestorPath.indexOf(input.toAncestorID)
         if (ancestorIdx < 0) return undefined
 
-        const branchIDs = new Set(ancestorPath.slice(ancestorIdx + 1))
-        if (branchIDs.size === 0) return undefined
+        const branchSlice = ancestorPath.slice(ancestorIdx + 1)
+        if (branchSlice.length === 0) return undefined
 
-        const branchMessages = Array.from(MessageV2.streamBranch(input.sessionID, input.fromLeafID)).filter((msg) =>
-          branchIDs.has(msg.info.id),
-        )
+        const branchMessages = branchSlice.map((id) => MessageV2.get({ sessionID: input.sessionID, messageID: id }))
 
         const lastUserMsg = [...branchMessages]
           .reverse()
@@ -100,16 +101,22 @@ export const layer = Layer.effect(
           })
           .pipe(
             Stream.tap((event) => {
-              if (event.type === "text-delta") text += (event as { type: "text-delta"; text: string }).text
+              if (event.type === "text-delta" && "text" in event && typeof event.text === "string") text += event.text
               return Effect.void
             }),
             Stream.runDrain,
-            Effect.catch(() => Effect.succeed(undefined)),
+            Effect.catch((e) => {
+              log.warn("branch summary stream failed", { error: String(e) })
+              return Effect.succeed(undefined)
+            }),
           )
 
         return text.trim() || undefined
       },
-      Effect.catch(() => Effect.succeed(undefined)),
+      Effect.catch((e) => {
+        log.warn("branch summary generation failed", { error: String(e) })
+        return Effect.succeed(undefined)
+      }),
     )
 
     return Service.of({ generate })

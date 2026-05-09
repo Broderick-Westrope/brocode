@@ -493,6 +493,23 @@ export function Session() {
       },
     },
     {
+      title: "Clone branch",
+      value: "session.clone",
+      category: "Session",
+      slash: {
+        name: "clone",
+      },
+      description: "Extract current branch into a new session",
+      onSelect: async (dialog) => {
+        const currentSession = session()
+        if (!currentSession) return
+        const cloned = await sdk.client.session.clone({ sessionID: currentSession.id })
+        if (!cloned.data) return
+        navigate({ type: "session", sessionID: cloned.data.id })
+        dialog.clear()
+      },
+    },
+    {
       title: "Session tree",
       value: "session.tree",
       category: "Session",

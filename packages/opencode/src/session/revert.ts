@@ -58,8 +58,10 @@ export const layer = Layer.effect(
         ),
       )
       if (branches.length > 0)
-        throw new Error(
-          "Revert is not supported on sessions with branches. Use /tree to navigate to a previous point instead.",
+        yield* Effect.die(
+          new Error(
+            "Revert is not supported on sessions with branches. Use /tree to navigate to a previous point instead.",
+          ),
         )
       const all = yield* sessions.messages({ sessionID: input.sessionID })
       let lastUser: MessageV2.User | undefined

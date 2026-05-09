@@ -804,6 +804,12 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       fromLeafID?: MessageID
       model?: string
     }) {
+      // Neither provided: simple navigation
+      if (!input.summary && !input.fromLeafID) {
+        yield* patch(input.sessionID, { leafID: input.messageID })
+        return
+      }
+      // Only one provided: invalid state, treat as simple navigation
       if (!input.summary || !input.fromLeafID) {
         yield* patch(input.sessionID, { leafID: input.messageID })
         return
@@ -875,6 +881,10 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
           yield* updatePart(p)
         }
       }
+
+      const lastNewID = ancestorPath.length > 0 ? idMap.get(ancestorPath[ancestorPath.length - 1]!) : undefined
+      if (lastNewID) yield* patch(session.id, { leafID: lastNewID })
+
       return session
     })
 
