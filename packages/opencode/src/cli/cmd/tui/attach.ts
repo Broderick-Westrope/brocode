@@ -31,10 +31,6 @@ export const AttachCommand = cmd({
         type: "string",
         describe: "session id to continue",
       })
-      .option("fork", {
-        type: "boolean",
-        describe: "fork the session when continuing (use with --continue or --session)",
-      })
       .option("password", {
         alias: ["p"],
         type: "string",
@@ -49,12 +45,6 @@ export const AttachCommand = cmd({
     const unguard = win32InstallCtrlCGuard()
     try {
       win32DisableProcessedInput()
-
-      if (args.fork && !args.continue && !args.session) {
-        UI.error("--fork requires --continue or --session")
-        process.exitCode = 1
-        return
-      }
 
       const directory = (() => {
         if (!args.dir) return undefined
@@ -88,7 +78,6 @@ export const AttachCommand = cmd({
         args: {
           continue: args.continue,
           sessionID: args.session,
-          fork: args.fork,
         },
         directory,
         headers,

@@ -27,7 +27,6 @@ const KeybindsSchema = Schema.Struct({
   session_new: keybind("<leader>n", "Create a new session"),
   session_list: keybind("<leader>l", "List all sessions"),
   session_timeline: keybind("<leader>g", "Show session timeline"),
-  session_fork: keybind("none", "Fork session from message"),
   session_tree: keybind("<leader>t", "Navigate session tree"),
   session_clone: keybind("none", "Clone current branch into new session"),
   session_rename: keybind("ctrl+r", "Rename session"),

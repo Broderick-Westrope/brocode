@@ -234,10 +234,6 @@ export const RunCommand = effectCmd({
         describe: "session id to continue",
         type: "string",
       })
-      .option("fork", {
-        describe: "fork the session before continuing (requires --continue or --session)",
-        type: "boolean",
-      })
       .option("share", {
         type: "boolean",
         describe: "share the session",
@@ -351,11 +347,6 @@ export const RunCommand = effectCmd({
         process.exit(1)
       }
 
-      if (args.fork && !args.continue && !args.session) {
-        UI.error("--fork requires --continue or --session")
-        process.exit(1)
-      }
-
       const rules: Permission.Ruleset = [
         {
           permission: "question",
@@ -382,11 +373,6 @@ export const RunCommand = effectCmd({
 
       async function session(sdk: OpencodeClient) {
         const baseID = args.continue ? (await sdk.session.list()).data?.find((s) => !s.parentID)?.id : args.session
-
-        if (baseID && args.fork) {
-          const forked = await sdk.session.fork({ sessionID: baseID })
-          return forked.data?.id
-        }
 
         if (baseID) return baseID
 
