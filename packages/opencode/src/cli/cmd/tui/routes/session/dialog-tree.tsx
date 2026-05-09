@@ -22,7 +22,8 @@ export function DialogTree(props: {
     const messages = sync.data.message[props.sessionID] ?? []
     if (!messages.length) return []
 
-    // Build children map for tree traversal
+    // Build children map and message lookup for tree traversal
+    const msgMap = new Map(messages.map((m) => [m.id, m]))
     const childrenMap = new Map<string | null, typeof messages>()
     for (const msg of messages) {
       const parentID = msg.treeParentID ?? null
@@ -33,7 +34,6 @@ export function DialogTree(props: {
     // Find ancestor path to highlight the current branch
     const ancestorSet = new Set<string>()
     if (props.leafID) {
-      const msgMap = new Map(messages.map((m) => [m.id, m]))
       let current: string | undefined = props.leafID
       while (current) {
         ancestorSet.add(current)
@@ -81,6 +81,15 @@ export function DialogTree(props: {
     function walk(parentID: string | null, depth: number) {
       const children = (childrenMap.get(parentID) ?? []).toSorted((a, b) => a.time.created - b.time.created)
       for (const msg of children) {
+        // Skip continuation assistants (tool-call loop iterations whose
+        // treeParentID points to another assistant) — they're part of the
+        // same logical response and not meaningful branch points.
+        const parentMsg = msg.treeParentID ? msgMap.get(msg.treeParentID) : undefined
+        if (msg.role === "assistant" && parentMsg?.role === "assistant") {
+          walk(msg.id, depth)
+          continue
+        }
+
         const indent = "  ".repeat(depth)
         const isCompacted = compactedSet.has(msg.id)
         const branchMarker = isCompacted ? "○ " : ancestorSet.has(msg.id) ? "● " : "  "
