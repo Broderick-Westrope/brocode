@@ -587,6 +587,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         id: MessageID.ascending(),
         role: "assistant",
         parentID: lastUser.id,
+        treeParentID: lastUser.id,
         sessionID,
         mode: task.agent,
         agent: task.agent,
@@ -748,6 +749,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         id: MessageID.ascending(),
         sessionID,
         role: "user",
+        treeParentID: assistantMessage.id,
         time: { created: Date.now() },
         agent: lastUser.agent,
         model: lastUser.model,
@@ -785,6 +787,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             const userMsg: MessageV2.User = {
               id: input.messageID ?? MessageID.ascending(),
               sessionID: input.sessionID,
+              treeParentID: session.leafID,
               time: { created: Date.now() },
               role: "user",
               agent: input.agent,
@@ -805,6 +808,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               id: MessageID.ascending(),
               sessionID: input.sessionID,
               parentID: userMsg.id,
+              treeParentID: userMsg.id,
               mode: input.agent,
               agent: input.agent,
               cost: 0,
@@ -964,10 +968,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           : undefined
       const variant = input.variant ?? (ag.variant && full?.variants?.[ag.variant] ? ag.variant : undefined)
 
+      const current = Database.use((db) =>
+        db
+          .select({ agent: SessionTable.agent, model: SessionTable.model, leaf_id: SessionTable.leaf_id })
+          .from(SessionTable)
+          .where(eq(SessionTable.id, input.sessionID))
+          .get(),
+      )
+
       const info: MessageV2.User = {
         id: input.messageID ?? MessageID.ascending(),
         role: "user",
         sessionID: input.sessionID,
+        treeParentID: current?.leaf_id ?? undefined,
         time: { created: Date.now() },
         tools: input.tools,
         agent: ag.name,
@@ -979,14 +992,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         system: input.system,
         format: input.format,
       }
-
-      const current = Database.use((db) =>
-        db
-          .select({ agent: SessionTable.agent, model: SessionTable.model })
-          .from(SessionTable)
-          .where(eq(SessionTable.id, input.sessionID))
-          .get(),
-      )
       if (current?.agent !== info.agent) {
         EventV2.run(SessionEvent.AgentSwitched.Sync, {
           sessionID: input.sessionID,
@@ -1525,6 +1530,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const msg: MessageV2.Assistant = {
             id: MessageID.ascending(),
             parentID: lastUser.id,
+            treeParentID: lastUser.id,
             role: "assistant",
             mode: agent.name,
             agent: agent.name,

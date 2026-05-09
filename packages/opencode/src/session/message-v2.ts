@@ -682,6 +682,7 @@ const info = (row: typeof MessageTable.$inferSelect) =>
     ...row.data,
     id: row.id,
     sessionID: row.session_id,
+    treeParentID: row.tree_parent_id ?? undefined,
   }) as Info
 
 const part = (row: typeof PartTable.$inferSelect) =>

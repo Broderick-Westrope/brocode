@@ -97,6 +97,7 @@ export function fromRow(row: SessionRow): Info {
       compacting: row.time_compacting ?? undefined,
       archived: row.time_archived ?? undefined,
     },
+    leafID: row.leaf_id ?? undefined,
   }
 }
 
@@ -124,6 +125,7 @@ export function toRow(info: Info) {
     time_updated: info.time.updated,
     time_compacting: info.time.compacting,
     time_archived: info.time.archived,
+    leaf_id: info.leafID ?? null,
   }
 }
 
@@ -193,6 +195,7 @@ export const Info = Schema.Struct({
   time: Time,
   permission: optionalOmitUndefined(Permission.Ruleset),
   revert: optionalOmitUndefined(Revert),
+  leafID: optionalOmitUndefined(MessageID),
 })
   .annotate({ identifier: "Session" })
   .pipe(withStatics((s) => ({ zod: zod(s) })))
