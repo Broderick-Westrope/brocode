@@ -88,7 +88,7 @@ export default [
 
   SyncEvent.project(MessageV2.Event.Updated, (db, data) => {
     const time_created = data.info.time.created
-    const { id, sessionID, ...rest } = data.info
+    const { id, sessionID, treeParentID, ...rest } = data.info
 
     try {
       db.insert(MessageTable)
@@ -96,13 +96,21 @@ export default [
           id,
           session_id: sessionID,
           time_created,
+          tree_parent_id: treeParentID ?? null,
           data: rest,
         })
-        .onConflictDoUpdate({ target: MessageTable.id, set: { data: rest } })
+        .onConflictDoUpdate({ target: MessageTable.id, set: { data: rest, tree_parent_id: treeParentID ?? null } })
         .run()
     } catch (err) {
       if (!foreign(err)) throw err
       log.warn("ignored late message update", { messageID: id, sessionID })
+    }
+
+    if (treeParentID !== undefined) {
+      db.update(SessionTable)
+        .set({ leaf_id: id })
+        .where(eq(SessionTable.id, sessionID))
+        .run()
     }
   }),
 
