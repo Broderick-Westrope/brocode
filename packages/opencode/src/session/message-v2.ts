@@ -1246,4 +1246,88 @@ export function fromError(
   }
 }
 
+export function getChildren(input: { sessionID: SessionID; messageID: MessageID }): WithParts[] {
+  const rows = Database.use((db) =>
+    db
+      .select()
+      .from(MessageTable)
+      .where(and(eq(MessageTable.session_id, input.sessionID), eq(MessageTable.tree_parent_id, input.messageID)))
+      .all(),
+  )
+  return hydrate(rows)
+}
+
+export function getAncestorPath(sessionID: SessionID, leafID?: MessageID): MessageID[] {
+  const rows = Database.use((db) =>
+    db
+      .select({ id: MessageTable.id, tree_parent_id: MessageTable.tree_parent_id })
+      .from(MessageTable)
+      .where(eq(MessageTable.session_id, sessionID))
+      .all(),
+  )
+
+  if (rows.length === 0) return []
+
+  // Legacy fallback: no tree data — return all IDs ordered by time_created ASC
+  const hasTreeData = rows.some((row) => row.tree_parent_id !== null)
+  if (!hasTreeData) {
+    const orderedRows = Database.use((db) =>
+      db
+        .select({ id: MessageTable.id })
+        .from(MessageTable)
+        .where(eq(MessageTable.session_id, sessionID))
+        .orderBy(MessageTable.time_created)
+        .all(),
+    )
+    return orderedRows.map((row) => row.id)
+  }
+
+  const parentMap = new Map<string, string | null>()
+  for (const row of rows) {
+    parentMap.set(row.id, row.tree_parent_id ?? null)
+  }
+
+  const startID =
+    leafID ??
+    Database.use((db) =>
+      db
+        .select({ id: MessageTable.id })
+        .from(MessageTable)
+        .where(eq(MessageTable.session_id, sessionID))
+        .orderBy(desc(MessageTable.time_created))
+        .limit(1)
+        .get(),
+    )?.id
+
+  if (!startID) return []
+
+  const path: MessageID[] = []
+  let current: string | undefined = startID
+  while (current) {
+    path.push(current as MessageID)
+    const parent = parentMap.get(current)
+    if (parent === undefined || parent === null) break
+    current = parent
+  }
+
+  path.reverse()
+  return path
+}
+
+export function* streamBranch(sessionID: SessionID, leafID?: MessageID): Generator<WithParts> {
+  const ids = getAncestorPath(sessionID, leafID)
+  if (ids.length === 0) return
+
+  const rows = Database.use((db) =>
+    db.select().from(MessageTable).where(inArray(MessageTable.id, ids)).all(),
+  )
+
+  const indexMap = new Map(ids.map((id, i) => [id as string, i]))
+  rows.sort((a, b) => (indexMap.get(a.id) ?? 0) - (indexMap.get(b.id) ?? 0))
+
+  for (const msg of hydrate(rows)) {
+    yield msg
+  }
+}
+
 export * as MessageV2 from "./message-v2"

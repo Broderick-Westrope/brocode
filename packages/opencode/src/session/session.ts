@@ -301,6 +301,7 @@ const UpdatedInfo = Schema.Struct({
   time: Schema.optional(UpdatedTime),
   permission: Schema.optional(Schema.NullOr(Permission.Ruleset)),
   revert: Schema.optional(Schema.NullOr(Revert)),
+  leafID: Schema.optional(Schema.NullOr(MessageID)),
 })
 
 const UpdatedEventSchema = Schema.Struct({
@@ -474,6 +475,7 @@ export interface Interface {
     sessionID: SessionID,
     predicate: (msg: MessageV2.WithParts) => boolean,
   ) => Effect.Effect<Option.Option<MessageV2.WithParts>>
+  readonly branchTo: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Session") {}
@@ -783,6 +785,13 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       return Option.none<MessageV2.WithParts>()
     })
 
+    const branchTo = Effect.fn("Session.branchTo")(function* (input: {
+      sessionID: SessionID
+      messageID: MessageID
+    }) {
+      yield* patch(input.sessionID, { leafID: input.messageID })
+    })
+
     return Service.of({
       list,
       create,
@@ -806,6 +815,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       getPart,
       updatePartDelta,
       findMessage,
+      branchTo,
     })
   }),
 )
