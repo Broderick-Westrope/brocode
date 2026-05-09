@@ -63,7 +63,11 @@ const triggerSystemTransform = Effect.fn("PluginTriggerTest.triggerSystemTransfo
     },
     out,
   )
-  return out.system
+  // Filter entries injected by built-in plugins (e.g. Claude OAuth billing/identity)
+  // so the test only asserts on entries from the external plugin under test.
+  return out.system.filter(
+    (s) => !s.startsWith("x-anthropic-billing-header:") && !s.startsWith("You are Claude Code"),
+  )
 })
 
 describe("plugin.trigger", () => {
