@@ -18,7 +18,7 @@ const KeybindsSchema = Schema.Struct({
   leader: keybind("ctrl+x", "Leader key for keybind combinations"),
   app_exit: keybind("ctrl+c,ctrl+d,<leader>q", "Exit the application"),
   editor_open: keybind("<leader>e", "Open external editor"),
-  theme_list: keybind("<leader>t", "List available themes"),
+  theme_list: keybind("none", "List available themes"),
   sidebar_toggle: keybind("<leader>b", "Toggle sidebar"),
   scrollbar_toggle: keybind("none", "Toggle session scrollbar"),
   username_toggle: keybind("none", "Toggle username visibility"),
