@@ -512,6 +512,7 @@ export function Session() {
     {
       title: "Clone branch",
       value: "session.clone",
+      keybind: "session_clone",
       category: "Session",
       slash: {
         name: "clone",
@@ -529,6 +530,7 @@ export function Session() {
     {
       title: "Session tree",
       value: "session.tree",
+      keybind: "session_tree",
       category: "Session",
       slash: {
         name: "tree",
