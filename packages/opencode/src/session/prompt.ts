@@ -588,7 +588,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         id: MessageID.ascending(),
         role: "assistant",
         parentID: lastUser.id,
-        treeParentID: lastAssistant?.id ?? lastUser.id,
+        treeParentID: lastAssistant && lastAssistant.id > lastUser.id ? lastAssistant.id : lastUser.id,
         sessionID,
         mode: task.agent,
         agent: task.agent,
@@ -1531,7 +1531,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const msg: MessageV2.Assistant = {
             id: MessageID.ascending(),
             parentID: lastUser.id,
-            treeParentID: lastAssistant?.id ?? lastUser.id,
+            treeParentID: lastAssistant && lastAssistant.id > lastUser.id ? lastAssistant.id : lastUser.id,
             role: "assistant",
             mode: agent.name,
             agent: agent.name,
