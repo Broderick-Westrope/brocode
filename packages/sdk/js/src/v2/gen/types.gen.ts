@@ -380,6 +380,7 @@ export type OutputFormat = OutputFormatText | OutputFormatJsonSchema
 export type UserMessage = {
   id: string
   sessionID: string
+  treeParentID?: string
   role: "user"
   time: {
     created: number
@@ -405,6 +406,7 @@ export type UserMessage = {
 export type AssistantMessage = {
   id: string
   sessionID: string
+  treeParentID?: string
   role: "assistant"
   time: {
     created: number
@@ -757,6 +759,7 @@ export type Session = {
     snapshot?: string
     diff?: string
   }
+  leafID?: string
 }
 
 export type Prompt = {
@@ -1406,6 +1409,7 @@ export type GlobalSession = {
     snapshot?: string
     diff?: string
   }
+  leafID?: string
   project: ProjectSummary | null
 }
 
@@ -1851,6 +1855,7 @@ export type SyncEventSessionUpdated = {
         snapshot?: string
         diff?: string
       } | null
+      leafID?: string | null
     }
   }
 }
@@ -5494,6 +5499,36 @@ export type SessionForkResponses = {
 }
 
 export type SessionForkResponse = SessionForkResponses[keyof SessionForkResponses]
+
+export type SessionCloneData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/clone"
+}
+
+export type SessionCloneErrors = {
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionCloneError = SessionCloneErrors[keyof SessionCloneErrors]
+
+export type SessionCloneResponses = {
+  /**
+   * 200
+   */
+  200: Session
+}
+
+export type SessionCloneResponse = SessionCloneResponses[keyof SessionCloneResponses]
 
 export type SessionAbortData = {
   body?: never

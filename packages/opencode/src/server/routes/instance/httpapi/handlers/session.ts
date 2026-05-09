@@ -194,6 +194,10 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       )
     })
 
+    const clone = Effect.fn("SessionHttpApi.clone")(function* (ctx: { params: { sessionID: SessionID } }) {
+      return yield* SessionError.mapStorageNotFound(session.clone({ sessionID: ctx.params.sessionID }))
+    })
+
     const abort = Effect.fn("SessionHttpApi.abort")(function* (ctx: { params: { sessionID: SessionID } }) {
       yield* promptSvc.cancel(ctx.params.sessionID)
       return true
@@ -364,6 +368,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("remove", remove)
       .handle("update", update)
       .handle("fork", fork)
+      .handle("clone", clone)
       .handle("abort", abort)
       .handle("init", init)
       .handle("share", share)

@@ -123,6 +123,8 @@ import type {
   SessionAbortResponses,
   SessionChildrenErrors,
   SessionChildrenResponses,
+  SessionCloneErrors,
+  SessionCloneResponses,
   SessionCommandErrors,
   SessionCommandResponses,
   SessionCreateErrors,
@@ -3392,6 +3394,38 @@ export class Session2 extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Clone session
+   *
+   * Create a linear clone of a session following the ancestor path to the current leaf.
+   */
+  public clone<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionCloneResponses, SessionCloneErrors, ThrowOnError>({
+      url: "/session/{sessionID}/clone",
+      ...options,
+      ...params,
     })
   }
 

@@ -81,6 +81,7 @@ export const SessionPaths = {
   remove: `${root}/:sessionID`,
   update: `${root}/:sessionID`,
   fork: `${root}/:sessionID/fork`,
+  clone: `${root}/:sessionID/clone`,
   abort: `${root}/:sessionID/abort`,
   share: `${root}/:sessionID/share`,
   init: `${root}/:sessionID/init`,
@@ -232,6 +233,18 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.fork",
             summary: "Fork session",
             description: "Create a new session by forking an existing session at a specific message point.",
+          }),
+        ),
+        HttpApiEndpoint.post("clone", SessionPaths.clone, {
+          params: { sessionID: SessionID },
+          payload: HttpApiSchema.NoContent,
+          success: described(Session.Info, "200"),
+          error: ApiNotFoundError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.clone",
+            summary: "Clone session",
+            description: "Create a linear clone of a session following the ancestor path to the current leaf.",
           }),
         ),
         HttpApiEndpoint.post("abort", SessionPaths.abort, {

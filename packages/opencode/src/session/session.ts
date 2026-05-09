@@ -438,6 +438,7 @@ export interface Interface {
     workspaceID?: WorkspaceID
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info, NotFound>
+  readonly clone: (input: { sessionID: SessionID }) => Effect.Effect<Info, NotFound>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
   readonly get: (id: SessionID) => Effect.Effect<Info, NotFound>
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
@@ -774,12 +775,12 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       yield* bus.publish(MessageV2.Event.PartDelta, input)
     })
 
-    /** Finds the first message matching the predicate, searching newest-first. */
+    /** Finds the first message matching the predicate, searching newest-first within the current branch. */
     const findMessage = Effect.fn("Session.findMessage")(function* (
       sessionID: SessionID,
       predicate: (msg: MessageV2.WithParts) => boolean,
     ) {
-      for (const item of MessageV2.stream(sessionID)) {
+      for (const item of [...MessageV2.streamBranch(sessionID)].reverse()) {
         if (predicate(item)) return Option.some(item)
       }
       return Option.none<MessageV2.WithParts>()
@@ -792,10 +793,55 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       yield* patch(input.sessionID, { leafID: input.messageID })
     })
 
+    const clone = Effect.fn("Session.clone")(function* (input: { sessionID: SessionID }) {
+      const ctx = yield* InstanceState.context
+      const original = yield* get(input.sessionID)
+      const title = getForkedTitle(original.title)
+      const session = yield* createNext({
+        directory: ctx.directory,
+        path: sessionPath(ctx.worktree, ctx.directory),
+        workspaceID: original.workspaceID,
+        title,
+      })
+      const ancestorPath = MessageV2.getAncestorPath(input.sessionID, original.leafID)
+      const idMap = new Map<string, MessageID>()
+
+      for (const messageID of ancestorPath) {
+        const msg = MessageV2.get({ sessionID: input.sessionID, messageID })
+        const newID = MessageID.ascending()
+        idMap.set(messageID, newID)
+
+        const treeParentID = msg.info.treeParentID ? idMap.get(msg.info.treeParentID) : undefined
+        const parentID = msg.info.role === "assistant" && msg.info.parentID ? idMap.get(msg.info.parentID) : undefined
+        const cloned = yield* updateMessage({
+          ...msg.info,
+          sessionID: session.id,
+          id: newID,
+          ...(treeParentID && { treeParentID }),
+          ...(parentID && { parentID }),
+        })
+
+        for (const part of msg.parts) {
+          const p: MessageV2.Part = {
+            ...part,
+            id: PartID.ascending(),
+            messageID: cloned.id,
+            sessionID: session.id,
+          }
+          if (p.type === "compaction" && p.tail_start_id) {
+            p.tail_start_id = idMap.get(p.tail_start_id)
+          }
+          yield* updatePart(p)
+        }
+      }
+      return session
+    })
+
     return Service.of({
       list,
       create,
       fork,
+      clone,
       touch,
       get,
       setTitle,
