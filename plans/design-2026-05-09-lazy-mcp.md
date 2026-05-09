@@ -56,10 +56,22 @@ Add `lazy_description?: string` to both `Local` and `Remote` schemas. Interactio
 - If MCP has no `lazy_description`: return error (can't return to lazy — it was never lazy)
 - If `status === "lazy"`: no-op
 
-**Manual operations (TUI/CLI):** Three actions available for lazy-capable MCPs:
-- **Enable:** `"lazy"` → `"connected"` (same as agent `enable_mcp`)
-- **Disable:** `"lazy"` or `"connected"` → `"disabled"` (hard off, uses existing `disconnect()`)
-- **Return to lazy:** `"connected"` → `"lazy"` (uses new `toLazy()`, only for MCPs with `lazy_description`)
+**TUI dialog cycling (`dialog-mcp.tsx`):** Space toggles cycle through states. The cycle depends on whether the MCP has `lazy_description`:
+
+Non-lazy MCPs (unchanged): `disabled` ↔ `connected`
+
+Lazy-capable MCPs: `disabled` → `lazy` → `connected` → `lazy` → `connected` → ...
+
+| Current status | Space → next |
+|---|---|
+| `disabled` | `lazy` (if has `lazy_description`) or `connected` (if not) |
+| `lazy` | `connected` |
+| `connected` (has `lazy_description`) | `lazy` |
+| `connected` (no `lazy_description`) | `disabled` |
+
+To hard-disable a lazy MCP, the user cycles from `connected` → `lazy` → then the existing `toggle()` from `lazy` goes to `connected`, not `disabled`. So we need a **`d` keybinding** to force-disable from any state (jumps straight to `disabled`).
+
+The `toggle()` method in `local.mcp` needs updating to implement this cycle logic, checking whether the MCP has `lazy_description` in config to determine the next state.
 
 **`tools()` method:** No change needed — already filters to `status === "connected"`.
 
