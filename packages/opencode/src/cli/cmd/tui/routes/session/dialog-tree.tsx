@@ -41,13 +41,49 @@ export function DialogTree(props: {
       }
     }
 
+    // Find compacted messages on the current branch.
+    // A completed compaction: user message with a compaction part that has tail_start_id,
+    // followed by an assistant with summary=true and finish set. Everything before
+    // tail_start_id on the branch is compacted (not visible to the LLM).
+    const compactedSet = new Set<string>()
+    if (ancestorSet.size > 0) {
+      const ancestorList = [...ancestorSet]
+      const msgMap = new Map(messages.map((m) => [m.id, m]))
+      // Walk from leaf towards root, find the latest compaction boundary
+      for (const id of ancestorList) {
+        const msg = msgMap.get(id)
+        if (msg?.role !== "user") continue
+        const parts = sync.data.part[msg.id] ?? []
+        const compactionPart = parts.find((p) => p.type === "compaction" && p.tail_start_id) as
+          | { type: "compaction"; tail_start_id: string }
+          | undefined
+        if (!compactionPart) continue
+        // Check that the paired assistant response completed the summary
+        const childMsgs = childrenMap.get(msg.id) ?? []
+        const summaryAssistant = childMsgs.find(
+          (m) => m.role === "assistant" && m.summary && m.finish && !m.error,
+        )
+        if (!summaryAssistant) continue
+        // Found a completed compaction — mark everything before tail_start_id as compacted
+        const tailID = compactionPart.tail_start_id
+        let foundTail = false
+        for (const ancestorID of ancestorList) {
+          if (ancestorID === tailID) foundTail = true
+          if (foundTail) break
+          compactedSet.add(ancestorID)
+        }
+        break // only need the latest compaction
+      }
+    }
+
     const result: DialogSelectOption<string>[] = []
 
     function walk(parentID: string | null, depth: number) {
       const children = (childrenMap.get(parentID) ?? []).toSorted((a, b) => a.time.created - b.time.created)
       for (const msg of children) {
         const indent = "  ".repeat(depth)
-        const onCurrentBranch = ancestorSet.has(msg.id) ? "● " : "  "
+        const isCompacted = compactedSet.has(msg.id)
+        const branchMarker = isCompacted ? "○ " : ancestorSet.has(msg.id) ? "● " : "  "
         const role = msg.role === "user" ? "U" : "A"
 
         let preview = ""
@@ -76,7 +112,7 @@ export function DialogTree(props: {
         const hasBranches = (childrenMap.get(msg.id)?.length ?? 0) > 1
 
         result.push({
-          title: `${indent}${onCurrentBranch}${role}: ${preview}${isLeaf ? " ← current" : ""}${hasBranches ? " ⑂" : ""}`,
+          title: `${indent}${branchMarker}${role}: ${preview}${isLeaf ? " ← current" : ""}${hasBranches ? " ⑂" : ""}`,
           value: msg.id,
           footer: Locale.time(msg.time.created),
           onSelect: (dialog) => {
