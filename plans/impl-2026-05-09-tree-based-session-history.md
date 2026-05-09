@@ -1,6 +1,6 @@
 # Tree-Based Session History Implementation Plan
 
-> **Status:** DRAFT
+> **Status:** APPROVED
 
 ## Specification
 
