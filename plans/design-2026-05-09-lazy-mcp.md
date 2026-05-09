@@ -34,29 +34,38 @@
 
 ### 1. Config Schema (`src/config/mcp.ts`)
 
-Add `lazy_description?: string` to both `Local` and `Remote` schemas.
+Add `lazy_description?: string` to both `Local` and `Remote` schemas. Interaction with `enabled: false`: `enabled: false` takes priority — the MCP is disabled and never connects, regardless of `lazy_description`.
 
 ### 2. MCP Service (`src/mcp/index.ts`)
 
-**New status value:** Add `"lazy"` to the status union type.
+**New status value:** Add `"lazy"` to the `Status` union type and add a corresponding `StatusLazy` variant to the status discriminated union (alongside `StatusConnected`, `StatusDisabled`, etc.).
 
 **Init loop change:** In `create()`, after successful connection and tool fetch:
 - If `lazy_description` is present on the config entry, set `status = "lazy"` instead of `"connected"`
 - Store tools in `defs` as normal (they're fetched, just not exposed)
+- If connection or tool fetch fails, status is `"failed"` as today — lazy logic only applies after successful init
 
 **New `enable(name)` method:**
-- If `status === "lazy"`: transition to `"connected"`, publish `ToolsChanged` bus event
-- If `status === "connected"`: no-op
-- Otherwise: return error
+- If `status === "lazy"`: transition to `"connected"`, publish `ToolsChanged` bus event, return `{ enabled: true, tools: string[] }`
+- If `status === "connected"`: no-op, return `{ enabled: true, tools: string[] }`
+- If `status === "needs_auth"`: return `{ enabled: false, reason: "MCP 'name' requires OAuth authentication. The user should run: opencode mcp auth name" }`
+- Otherwise: return `{ enabled: false, reason: "MCP 'name' is in status 'X' and cannot be enabled" }`
 
 **`tools()` method:** No change needed — already filters to `status === "connected"`.
+
+**CLI status display (`cli/cmd/mcp.ts`):** Add handling for `"lazy"` status with a distinct icon (e.g., `"◌"`) and label like `"available (lazy)"`.
+
+**TUI dialog (`dialog-mcp.tsx`):** Handle `"lazy"` status display.
+
+**SDK regeneration:** After adding `StatusLazy` to the union, regenerate the JS SDK via `./packages/sdk/js/script/build.ts`.
 
 ### 3. Built-in Tool (`src/tool/`)
 
 Register `enable_mcp` as a built-in tool:
-- Schema: `{ name: z.string() }` — the MCP server name from config
-- Handler: calls `MCP.enable(name)`, returns `{ tools: string[] }` listing the newly available tool names
-- Error cases: unknown name, already connected, disabled/errored MCP
+- Schema: `{ name: z.string() }` — the MCP server config key (e.g., `"datadog"`, not a display name)
+- Handler: calls `MCP.enable(name)`, returns structured result (see enable() return shapes above)
+- **Conditional registration:** Only register this tool when at least one MCP has `lazy_description` configured. If no lazy MCPs exist, the tool is not registered and no system prompt block is emitted. This avoids 100 tokens of dead weight.
+- **Dependency:** The handler needs `MCP.Service`. Since `ToolRegistry` doesn't currently depend on `MCP.Service`, this tool should be registered in `session/prompt.ts` during `resolveTools()` (where MCP access already exists) rather than in `tool/registry.ts`. Alternatively, add it as a dynamic tool alongside the MCP tools merge.
 
 ### 4. System Prompt (`src/session/system.ts`)
 
@@ -69,7 +78,13 @@ The following MCP servers are available but not loaded. Call enable_mcp(name) to
 - linear: Linear project management: issues, projects, cycles, documents, initiatives
 ```
 
-Injected into the system prompt array alongside environment/skills blocks.
+Injected into the system prompt array alongside environment/skills blocks. Only emitted when at least one MCP has `status === "lazy"`.
+
+Note: After enablement, the discovery block updates on the next loop iteration (system prompt is re-assembled each step). The current step's system prompt is stale but the agent sees the `enable_mcp` tool result confirming success, so this is benign.
+
+### 5. Subagent Behavior
+
+Subagents (task tool) share the same `MCP.Service` instance via `InstanceState`. A lazy MCP enabled by any agent (parent or sub) becomes enabled for all agents in the session. This is the desired behavior — if a subagent needs Datadog, the tools should be available.
 
 ### Token Budget
 
