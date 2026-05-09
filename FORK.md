@@ -2,36 +2,42 @@
 
 ## Changes
 
-### 2026-04-04 — Built-in Claude Code OAuth
+### Lazy MCP loading
 
-Anthropic OAuth is now a first-class auth method on the `anthropic` provider. Connect via "Claude Code (OAuth)" in the provider auth UI — no external plugin needed.
+MCP servers can be configured with a `lazy_description` field. These servers start pre-connected but with their tools hidden from the model. The system prompt lists lazy MCPs under "Available MCP Servers (not yet enabled)", and the model calls the built-in `enable_mcp` tool when it needs one.
 
-Reads credentials from macOS Keychain or `~/.claude/.credentials.json`, refreshes tokens automatically, and sends requests through the normal `@ai-sdk/anthropic` pipeline with no tool name mangling or response rewriting. `defer_tools` works out of the box.
+This keeps large tool schemas (80+ tools across multiple MCPs) out of every turn's context until actually needed. Lazy MCPs show as "◌ Available" in the TUI sidebar and MCP dialog.
 
-Removes the dependency on the `opencode-claude-auth` third-party plugin. If you had it configured, remove `"opencode-claude-auth"` from your `plugin` array.
-
-### 2026-04-03 — Deferred MCP tool loading
-
-MCP tools can now be deferred so the model only sees their names until it needs them. When the model wants to use a deferred tool, the Anthropic API's built-in tool search finds and loads the full schema on demand. This keeps 80+ MCP tool schemas out of every turn's context.
-
-Saves ~20-30K tokens with many MCP tools connected. Requires Anthropic models (Claude Sonnet 4+, Opus 4+). Enable with:
+The MCP dialog also adds a `d` keybinding to force-disable any MCP, and lazy MCPs can be returned to lazy state via the `toLazy` API.
 
 ```jsonc
 {
-  "experimental": {
-    "defer_tools": true,
-  },
+  "mcp": {
+    "datadog": {
+      "type": "local",
+      "command": ["npx", "-y", "@anthropic/datadog-mcp"],
+      "lazy_description": "Datadog observability: query logs, traces, spans, and metrics"
+    }
+  }
 }
 ```
 
-### 2026-04-03 — Tool-level prompt caching
+### Built-in Claude Code OAuth
 
-The Anthropic API supports up to 4 cache breakpoints. Previously only 2 were used on system messages, and the large system prompt was often missed due to billing/identity messages being prepended by OAuth. Now the breakpoints are allocated as: 2 system (last two, catching the large prompt) + 1 final message + 1 tool block. The last non-deferred tool gets `cache_control: ephemeral`, causing the entire ~200K+ tools block to be prompt-cached from turn 2 onward.
+Anthropic OAuth is a first-class auth method on the `anthropic` provider. Connect via "Claude Code (OAuth)" in the provider auth UI — no external plugin needed.
 
-### 2026-04-03 — Tool schema caching
+Reads credentials from macOS Keychain or `~/.claude/.credentials.json`, refreshes tokens automatically, and sends requests through the normal `@ai-sdk/anthropic` pipeline. Injects Claude Code identity and billing headers via `system.transform` hook. Removes the dependency on the `opencode-claude-auth` third-party plugin.
 
-Tool definitions and their transformed schemas are now cached per-session instead of recomputed on every turn. This improves prompt cache hit rates with providers that support it, since the serialized tool blocks stay byte-identical across turns.
+### RTK wrapper prefix stripping for permissions
 
-### 2026-04-03 — Compact skill listing
+The permission arity system strips known wrapper prefixes (like `rtk`) from bash command tokens before matching against the arity table. This fixes permission patterns not matching when commands are run through wrapper scripts.
 
-The system prompt included full descriptions, XML markup, and file paths for every installed skill. Now it uses a compact markdown list with names and descriptions only, dropping the XML wrapper and location URLs. Saves ~3-5K tokens for large skill sets.
+### Compact skill listing
+
+The system prompt uses a compact markdown list for skills (name + description only) instead of full XML with file paths. Saves ~3-5K tokens for large skill sets. Skills without descriptions are excluded.
+
+### Branding
+
+- Logo changed from "open" to "bro" in the TUI splash
+- Binary name is `brocode` instead of `opencode`
+- `install-local` npm script for building and installing to `~/.bun/bin/brocode`
