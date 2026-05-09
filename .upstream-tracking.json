@@ -1,0 +1,19 @@
+{
+  "trackers": [
+    {
+      "name": "opencode",
+      "repo": "https://github.com/anomalyco/opencode",
+      "remote": "upstream",
+      "notes": "Main opencode upstream. Synced via git remote 'upstream'."
+    },
+    {
+      "name": "opencode-claude-auth",
+      "repo": "https://github.com/griffinmartin/opencode-claude-auth",
+      "integration": "packages/opencode/src/plugin/claude-oauth/",
+      "last_checked_commit": "2ce824ffd27d170debcb3014b0d2a7c3f4edaa18",
+      "last_checked_date": "2026-05-03",
+      "last_checked_version": "1.5.3",
+      "notes": "Not a git remote — BroCode reimplements the auth plugin natively. Check this repo periodically for fixes to port."
+    }
+  ]
+}
