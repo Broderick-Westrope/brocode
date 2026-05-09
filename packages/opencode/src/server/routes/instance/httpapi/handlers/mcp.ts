@@ -55,6 +55,16 @@ export const mcpHandlers = HttpApiBuilder.group(InstanceHttpApi, "mcp", (handler
       return true
     })
 
+    const enable = Effect.fn("McpHttpApi.enable")(function* (ctx: { params: { name: string } }) {
+      const result = yield* mcp.enable(ctx.params.name)
+      return result.enabled
+    })
+
+    const toLazy = Effect.fn("McpHttpApi.toLazy")(function* (ctx: { params: { name: string } }) {
+      const result = yield* mcp.toLazy(ctx.params.name)
+      return result.success
+    })
+
     return handlers
       .handle("status", status)
       .handle("add", add)
@@ -64,5 +74,7 @@ export const mcpHandlers = HttpApiBuilder.group(InstanceHttpApi, "mcp", (handler
       .handle("authRemove", authRemove)
       .handle("connect", connect)
       .handle("disconnect", disconnect)
+      .handle("enable", enable)
+      .handle("toLazy", toLazy)
   }),
 )

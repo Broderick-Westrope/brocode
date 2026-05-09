@@ -388,12 +388,21 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       async toggle(name: string) {
         const status = sync.data.mcp[name]
         if (status?.status === "connected") {
-          // Disable: disconnect the MCP
-          await sdk.client.mcp.disconnect({ name })
+          // Try return to lazy; if not lazy-capable, toLazy returns success=false via API
+          const result = await sdk.client.mcp.toLazy({ name })
+          if (!result.data) {
+            await sdk.client.mcp.disconnect({ name })
+          }
+        } else if (status?.status === "lazy") {
+          // Lazy → connected (lightweight enable, no reconnect)
+          await sdk.client.mcp.enable({ name })
         } else {
-          // Enable/Retry: connect the MCP (handles disabled, failed, and other states)
+          // disabled/failed/etc → reconnect (storeClient handles lazy_description check)
           await sdk.client.mcp.connect({ name })
         }
+      },
+      async forceDisable(name: string) {
+        await sdk.client.mcp.disconnect({ name })
       },
     }
 

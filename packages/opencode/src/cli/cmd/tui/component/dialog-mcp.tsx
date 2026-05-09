@@ -8,13 +8,16 @@ import { Keybind } from "@/util/keybind"
 import { TextAttributes } from "@opentui/core"
 import { useSDK } from "@tui/context/sdk"
 
-function Status(props: { enabled: boolean; loading: boolean }) {
+function Status(props: { status: string; loading: boolean }) {
   const { theme } = useTheme()
   if (props.loading) {
     return <span style={{ fg: theme.textMuted }}>⋯ Loading</span>
   }
-  if (props.enabled) {
+  if (props.status === "connected") {
     return <span style={{ fg: theme.success, attributes: TextAttributes.BOLD }}>✓ Enabled</span>
+  }
+  if (props.status === "lazy") {
+    return <span style={{ fg: theme.warning }}>◌ Available</span>
   }
   return <span style={{ fg: theme.textMuted }}>○ Disabled</span>
 }
@@ -39,7 +42,7 @@ export function DialogMcp() {
         value: name,
         title: name,
         description: status.status === "failed" ? "failed" : status.status,
-        footer: <Status enabled={local.mcp.isEnabled(name)} loading={loadingMcp === name} />,
+        footer: <Status status={status.status} loading={loadingMcp === name} />,
         category: undefined,
       })),
     )
@@ -65,6 +68,25 @@ export function DialogMcp() {
           }
         } catch (error) {
           console.error("Failed to toggle MCP:", error)
+        } finally {
+          setLoading(null)
+        }
+      },
+    },
+    {
+      keybind: Keybind.parse("d")[0],
+      title: "disable",
+      onTrigger: async (option: DialogSelectOption<string>) => {
+        if (loading() !== null) return
+        setLoading(option.value)
+        try {
+          await local.mcp.forceDisable(option.value)
+          const status = await sdk.client.mcp.status()
+          if (status.data) {
+            sync.set("mcp", status.data)
+          }
+        } catch (error) {
+          console.error("Failed to disable MCP:", error)
         } finally {
           setLoading(null)
         }

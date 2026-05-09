@@ -455,6 +455,27 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         })
       }
 
+      const lazyMcpList = yield* mcp.lazyMcps()
+      if (lazyMcpList.length > 0) {
+        tools["enable_mcp"] = tool({
+          description:
+            "Enable a lazy-loaded MCP server to make its tools available. Call this when you need tools from an MCP that is listed in the 'Available MCP Servers' section of the system prompt.",
+          inputSchema: jsonSchema(
+            EffectZod.toJsonSchema(
+              Schema.Struct({
+                name: Schema.String.annotate({
+                  description: "The MCP server name to enable (e.g., 'datadog', 'linear')",
+                }),
+              }),
+            ) as JSONSchema7,
+          ),
+          execute: async (args: { name: string }) => {
+            const result = await run.promise(mcp.enable(args.name))
+            return JSON.stringify(result)
+          },
+        })
+      }
+
       for (const [key, item] of Object.entries(yield* mcp.tools())) {
         const execute = item.execute
         if (!execute) continue
@@ -1572,6 +1593,18 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
             const system = [...env, ...instructions, ...(skills ? [skills] : [])]
+
+            const lazyMcpInfo = yield* mcp.lazyMcps()
+            if (lazyMcpInfo.length > 0) {
+              system.push(
+                [
+                  "## Available MCP Servers (not yet enabled)",
+                  "The following MCP servers are available but not loaded. Call enable_mcp(name) to activate one:",
+                  ...lazyMcpInfo.map((m) => `- ${m.name}: ${m.description}`),
+                ].join("\n"),
+              )
+            }
+
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const result = yield* handle.process({

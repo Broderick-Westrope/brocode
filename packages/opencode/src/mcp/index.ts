@@ -88,8 +88,13 @@ const StatusNeedsClientRegistration = Schema.Struct({
   error: Schema.String,
 }).annotate({ identifier: "MCPStatusNeedsClientRegistration" })
 
+const StatusLazy = Schema.Struct({ status: Schema.Literal("lazy") }).annotate({
+  identifier: "MCPStatusLazy",
+})
+
 export const Status = Schema.Union([
   StatusConnected,
+  StatusLazy,
   StatusDisabled,
   StatusFailed,
   StatusNeedsAuth,
@@ -233,6 +238,9 @@ export interface Interface {
   readonly supportsOAuth: (mcpName: string) => Effect.Effect<boolean>
   readonly hasStoredTokens: (mcpName: string) => Effect.Effect<boolean>
   readonly getAuthStatus: (mcpName: string) => Effect.Effect<AuthStatus>
+  readonly enable: (name: string) => Effect.Effect<{ enabled: boolean; tools?: string[]; reason?: string }>
+  readonly toLazy: (name: string) => Effect.Effect<{ success: boolean; reason?: string }>
+  readonly lazyMcps: () => Effect.Effect<Array<{ name: string; description: string }>>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/MCP") {}
@@ -472,11 +480,11 @@ export const layer = Layer.effect(
     function watch(s: State, name: string, client: MCPClient, bridge: EffectBridge.Shape, timeout?: number) {
       client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
         log.info("tools list changed notification received", { server: name })
-        if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
+        if (s.clients[name] !== client || (s.status[name]?.status !== "connected" && s.status[name]?.status !== "lazy")) return
 
         const listed = await bridge.promise(defs(name, client, timeout))
         if (!listed) return
-        if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
+        if (s.clients[name] !== client || (s.status[name]?.status !== "connected" && s.status[name]?.status !== "lazy")) return
 
         s.defs[name] = listed
         await bridge.promise(bus.publish(ToolsChanged, { server: name }).pipe(Effect.ignore))
@@ -511,11 +519,10 @@ export const layer = Layer.effect(
               const result = yield* create(key, mcp).pipe(Effect.catch(() => Effect.void))
               if (!result) return
 
-              s.status[key] = result.status
               if (result.mcpClient) {
-                s.clients[key] = result.mcpClient
-                s.defs[key] = result.defs!
-                watch(s, key, result.mcpClient, bridge, mcp.timeout)
+                yield* storeClient(s, key, result.mcpClient, result.defs!, mcp.timeout)
+              } else {
+                s.status[key] = result.status
               }
             }),
           { concurrency: "unbounded" },
@@ -564,7 +571,9 @@ export const layer = Layer.effect(
     ) {
       const bridge = yield* EffectBridge.make()
       yield* closeClient(s, name)
-      s.status[name] = { status: "connected" }
+      const mcpConfig = yield* getMcpConfig(name)
+      const isLazy = mcpConfig && isMcpConfigured(mcpConfig) && mcpConfig.lazy_description
+      s.status[name] = isLazy ? { status: "lazy" } : { status: "connected" }
       s.clients[name] = client
       s.defs[name] = listed
       watch(s, name, client, bridge, timeout)
@@ -894,6 +903,48 @@ export const layer = Layer.effect(
       return (expired ? "expired" : "authenticated") as AuthStatus
     })
 
+    const enable = Effect.fn("MCP.enable")(function* (name: string) {
+      const s = yield* InstanceState.get(state)
+      if (s.status[name]?.status === "lazy") {
+        s.status[name] = { status: "connected" }
+        yield* bus.publish(ToolsChanged, { server: name }).pipe(Effect.ignore)
+        return { enabled: true, tools: s.defs[name]?.map(t => t.name) ?? [] }
+      }
+      if (s.status[name]?.status === "connected")
+        return { enabled: true, tools: s.defs[name]?.map(t => t.name) ?? [] }
+      if (s.status[name]?.status === "needs_auth")
+        return { enabled: false, reason: `MCP '${name}' requires OAuth authentication. The user should run: opencode mcp auth ${name}` }
+      return { enabled: false, reason: `MCP '${name}' is in status '${s.status[name]?.status ?? "unknown"}' and cannot be enabled` }
+    })
+
+    const toLazy = Effect.fn("MCP.toLazy")(function* (name: string) {
+      const mcpConfig = yield* getMcpConfig(name)
+      if (!mcpConfig || !isMcpConfigured(mcpConfig) || !mcpConfig.lazy_description)
+        return { success: false, reason: `MCP '${name}' is not configured as lazy` }
+      const s = yield* InstanceState.get(state)
+      if (s.status[name]?.status === "connected") {
+        s.status[name] = { status: "lazy" }
+        yield* bus.publish(ToolsChanged, { server: name }).pipe(Effect.ignore)
+        return { success: true }
+      }
+      if (s.status[name]?.status === "lazy") return { success: true }
+      return { success: false, reason: `MCP '${name}' cannot return to lazy from status '${s.status[name]?.status}'` }
+    })
+
+    const lazyMcps = Effect.fn("MCP.lazyMcps")(function* () {
+      const s = yield* InstanceState.get(state)
+      const cfg = yield* cfgSvc.get()
+      const config = cfg.mcp ?? {}
+      const result: Array<{ name: string; description: string }> = []
+      for (const [key, mcpConfig] of Object.entries(config)) {
+        if (!isMcpConfigured(mcpConfig)) continue
+        if (s.status[key]?.status !== "lazy") continue
+        if (mcpConfig.lazy_description)
+          result.push({ name: key, description: mcpConfig.lazy_description })
+      }
+      return result
+    })
+
     return Service.of({
       status,
       clients,
@@ -912,6 +963,9 @@ export const layer = Layer.effect(
       supportsOAuth,
       hasStoredTokens,
       getAuthStatus,
+      enable,
+      toLazy,
+      lazyMcps,
     })
   }),
 )

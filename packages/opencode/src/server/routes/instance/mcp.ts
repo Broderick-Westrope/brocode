@@ -273,5 +273,47 @@ export const McpRoutes = lazy(() =>
           yield* mcp.disconnect(name)
           return true
         }),
+    )
+    .post(
+      "/:name/enable",
+      describeRoute({
+        description: "Enable a lazy MCP server (lightweight status flip, no reconnection)",
+        operationId: "mcp.enable",
+        responses: {
+          200: {
+            description: "MCP server enabled",
+            content: { "application/json": { schema: resolver(z.boolean()) } },
+          },
+        },
+      }),
+      validator("param", z.object({ name: z.string() })),
+      async (c) =>
+        jsonRequest("McpRoutes.enable", c, function* () {
+          const { name } = c.req.valid("param")
+          const mcp = yield* MCP.Service
+          const result = yield* mcp.enable(name)
+          return result.enabled
+        }),
+    )
+    .post(
+      "/:name/toLazy",
+      describeRoute({
+        description: "Return a connected MCP server to lazy state (tools hidden)",
+        operationId: "mcp.toLazy",
+        responses: {
+          200: {
+            description: "MCP server returned to lazy state",
+            content: { "application/json": { schema: resolver(z.boolean()) } },
+          },
+        },
+      }),
+      validator("param", z.object({ name: z.string() })),
+      async (c) =>
+        jsonRequest("McpRoutes.toLazy", c, function* () {
+          const { name } = c.req.valid("param")
+          const mcp = yield* MCP.Service
+          const result = yield* mcp.toLazy(name)
+          return result.success
+        }),
     ),
 )

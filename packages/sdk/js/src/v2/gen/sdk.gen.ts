@@ -69,9 +69,11 @@ import type {
   McpAuthStartResponses,
   McpConnectResponses,
   McpDisconnectResponses,
+  McpEnableResponses,
   McpLocalConfig,
   McpRemoteConfig,
   McpStatusResponses,
+  McpToLazyResponses,
   OutputFormat,
   Part as Part2,
   PartDeleteErrors,
@@ -1979,6 +1981,66 @@ export class Mcp extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<McpDisconnectResponses, unknown, ThrowOnError>({
       url: "/mcp/{name}/disconnect",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Enable a lazy MCP server (lightweight status flip).
+   */
+  public enable<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "name" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<McpEnableResponses, unknown, ThrowOnError>({
+      url: "/mcp/{name}/enable",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Return a connected MCP server to lazy state (tools hidden).
+   */
+  public toLazy<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "name" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<McpToLazyResponses, unknown, ThrowOnError>({
+      url: "/mcp/{name}/toLazy",
       ...options,
       ...params,
     })

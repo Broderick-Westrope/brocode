@@ -151,6 +151,9 @@ export const McpListCommand = effectCmd({
         statusIcon = "✗"
         statusText = "needs client registration"
         hint = "\n    " + status.error
+      } else if (status.status === "lazy") {
+        statusIcon = "◌"
+        statusText = "available (lazy)"
       } else {
         statusIcon = "✗"
         statusText = "failed"

@@ -129,6 +129,9 @@ const mcp = Layer.succeed(
     supportsOAuth: () => Effect.succeed(false),
     hasStoredTokens: () => Effect.succeed(false),
     getAuthStatus: () => Effect.succeed("not_authenticated" as const),
+    enable: () => Effect.succeed({ enabled: false }),
+    toLazy: () => Effect.succeed({ success: false }),
+    lazyMcps: () => Effect.succeed([]),
   }),
 )
 

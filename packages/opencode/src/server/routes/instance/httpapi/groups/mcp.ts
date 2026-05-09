@@ -35,6 +35,8 @@ export const McpPaths = {
   authAuthenticate: "/mcp/:name/auth/authenticate",
   connect: "/mcp/:name/connect",
   disconnect: "/mcp/:name/disconnect",
+  enable: "/mcp/:name/enable",
+  toLazy: "/mcp/:name/toLazy",
 } as const
 
 export const McpApi = HttpApi.make("mcp")
@@ -123,6 +125,24 @@ export const McpApi = HttpApi.make("mcp")
           OpenApi.annotations({
             identifier: "mcp.disconnect",
             description: "Disconnect an MCP server.",
+          }),
+        ),
+        HttpApiEndpoint.post("enable", McpPaths.enable, {
+          params: { name: Schema.String },
+          success: described(Schema.Boolean, "MCP server enabled"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "mcp.enable",
+            description: "Enable a lazy MCP server (lightweight status flip).",
+          }),
+        ),
+        HttpApiEndpoint.post("toLazy", McpPaths.toLazy, {
+          params: { name: Schema.String },
+          success: described(Schema.Boolean, "MCP server returned to lazy state"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "mcp.toLazy",
+            description: "Return a connected MCP server to lazy state (tools hidden).",
           }),
         ),
       )

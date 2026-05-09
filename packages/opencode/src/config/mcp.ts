@@ -10,6 +10,9 @@ export const Local = Schema.Struct({
   environment: Schema.optional(Schema.Record(Schema.String, Schema.String)).annotate({
     description: "Environment variables to set when running the MCP server",
   }),
+  lazy_description: Schema.optional(Schema.String).annotate({
+    description: "If set, this MCP starts in lazy mode (pre-connected, tools hidden). The description helps the agent decide when to enable it.",
+  }),
   enabled: Schema.optional(Schema.Boolean).annotate({
     description: "Enable or disable the MCP server on startup",
   }),
@@ -40,6 +43,9 @@ export type OAuth = Schema.Schema.Type<typeof OAuth>
 export const Remote = Schema.Struct({
   type: Schema.Literal("remote").annotate({ description: "Type of MCP server connection" }),
   url: Schema.String.annotate({ description: "URL of the remote MCP server" }),
+  lazy_description: Schema.optional(Schema.String).annotate({
+    description: "If set, this MCP starts in lazy mode (pre-connected, tools hidden). The description helps the agent decide when to enable it.",
+  }),
   enabled: Schema.optional(Schema.Boolean).annotate({
     description: "Enable or disable the MCP server on startup",
   }),

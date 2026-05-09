@@ -1065,6 +1065,7 @@ export type McpLocalConfig = {
   environment?: {
     [key: string]: string
   }
+  lazy_description?: string
   enabled?: boolean
   timeout?: number
 }
@@ -1085,6 +1086,7 @@ export type McpRemoteConfig = {
    * URL of the remote MCP server
    */
   url: string
+  lazy_description?: string
   enabled?: boolean
   headers?: {
     [key: string]: string
@@ -1532,6 +1534,10 @@ export type McpStatusConnected = {
   status: "connected"
 }
 
+export type McpStatusLazy = {
+  status: "lazy"
+}
+
 export type McpStatusDisabled = {
   status: "disabled"
 }
@@ -1552,6 +1558,7 @@ export type McpStatusNeedsClientRegistration = {
 
 export type McpStatus =
   | McpStatusConnected
+  | McpStatusLazy
   | McpStatusDisabled
   | McpStatusFailed
   | McpStatusNeedsAuth
@@ -4374,6 +4381,48 @@ export type McpDisconnectResponses = {
 }
 
 export type McpDisconnectResponse = McpDisconnectResponses[keyof McpDisconnectResponses]
+
+export type McpEnableData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mcp/{name}/enable"
+}
+
+export type McpEnableResponses = {
+  /**
+   * MCP server enabled
+   */
+  200: boolean
+}
+
+export type McpEnableResponse = McpEnableResponses[keyof McpEnableResponses]
+
+export type McpToLazyData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mcp/{name}/toLazy"
+}
+
+export type McpToLazyResponses = {
+  /**
+   * MCP server returned to lazy state
+   */
+  200: boolean
+}
+
+export type McpToLazyResponse = McpToLazyResponses[keyof McpToLazyResponses]
 
 export type ProjectListData = {
   body?: never
