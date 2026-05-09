@@ -42,6 +42,11 @@ import { NonNegativeInt, optionalOmitUndefined, withStatics } from "@/util/schem
 
 const log = Log.create({ service: "session" })
 
+function parseModelString(model: string) {
+  const [providerID, ...rest] = model.split("/")
+  return { providerID: providerID ?? "", modelID: rest.join("/") }
+}
+
 const parentTitlePrefix = "New session - "
 const childTitlePrefix = "Child session - "
 
@@ -476,7 +481,13 @@ export interface Interface {
     sessionID: SessionID,
     predicate: (msg: MessageV2.WithParts) => boolean,
   ) => Effect.Effect<Option.Option<MessageV2.WithParts>>
-  readonly branchTo: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<void>
+  readonly branchTo: (input: {
+    sessionID: SessionID
+    messageID: MessageID
+    summary?: string
+    fromLeafID?: MessageID
+    model?: string
+  }) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Session") {}
@@ -789,8 +800,38 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
     const branchTo = Effect.fn("Session.branchTo")(function* (input: {
       sessionID: SessionID
       messageID: MessageID
+      summary?: string
+      fromLeafID?: MessageID
+      model?: string
     }) {
-      yield* patch(input.sessionID, { leafID: input.messageID })
+      if (!input.summary || !input.fromLeafID) {
+        yield* patch(input.sessionID, { leafID: input.messageID })
+        return
+      }
+
+      const parsed = input.model ? parseModelString(input.model) : undefined
+      const summaryMsg = yield* updateMessage({
+        id: MessageID.ascending(),
+        role: "user",
+        sessionID: input.sessionID,
+        treeParentID: input.messageID,
+        time: { created: Date.now() },
+        agent: "compaction",
+        model: {
+          providerID: ProviderID.make(parsed?.providerID ?? "system"),
+          modelID: ModelID.make(parsed?.modelID ?? "summary"),
+        },
+      })
+      yield* updatePart({
+        id: PartID.ascending(),
+        messageID: summaryMsg.id,
+        sessionID: input.sessionID,
+        type: "branch_summary",
+        summary: input.summary,
+        fromLeafID: input.fromLeafID,
+        model: input.model ?? "system/summary",
+      })
+      yield* patch(input.sessionID, { leafID: summaryMsg.id })
     })
 
     const clone = Effect.fn("Session.clone")(function* (input: { sessionID: SessionID }) {

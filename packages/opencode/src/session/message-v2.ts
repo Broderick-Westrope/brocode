@@ -221,6 +221,17 @@ export const CompactionPart = Schema.Struct({
   .pipe(withStatics((s) => ({ zod: zod(s) })))
 export type CompactionPart = Types.DeepMutable<Schema.Schema.Type<typeof CompactionPart>>
 
+export const BranchSummaryPart = Schema.Struct({
+  ...partBase,
+  type: Schema.Literal("branch_summary"),
+  summary: Schema.String,
+  fromLeafID: MessageID,
+  model: Schema.String,
+})
+  .annotate({ identifier: "BranchSummaryPart" })
+  .pipe(withStatics((s) => ({ zod: zod(s) })))
+export type BranchSummaryPart = Types.DeepMutable<Schema.Schema.Type<typeof BranchSummaryPart>>
+
 export const SubtaskPart = Schema.Struct({
   ...partBase,
   type: Schema.Literal("subtask"),
@@ -416,6 +427,7 @@ const _Part = Schema.Union([
   AgentPart,
   RetryPart,
   CompactionPart,
+  BranchSummaryPart,
 ]).annotate({ discriminator: "type", identifier: "Part" })
 export const Part = Object.assign(_Part, {
   zod: zod(_Part) as unknown as z.ZodType<
@@ -431,6 +443,7 @@ export const Part = Object.assign(_Part, {
     | AgentPart
     | RetryPart
     | CompactionPart
+    | BranchSummaryPart
   >,
 })
 export type Part =
@@ -446,6 +459,7 @@ export type Part =
   | AgentPart
   | RetryPart
   | CompactionPart
+  | BranchSummaryPart
 
 // Zod discriminated union kept for the legacy Hono OpenAPI path.
 const AssistantErrorZod = z.discriminatedUnion("name", [
