@@ -1306,12 +1306,4 @@ export function schema(model: Provider.Model, schema: JSONSchema.BaseSchema | JS
   return schema as JSONSchema7
 }
 
-export function supportsDefer(model: Provider.Model): boolean {
-  if (model.api.npm !== "@ai-sdk/anthropic") return false
-  // Tool search requires Sonnet 4+ or Opus 4+ (no Haiku).
-  const match = model.api.id.toLowerCase().match(/claude-(?:sonnet|opus)-(\d+)/)
-  if (!match) return false
-  return parseInt(match[1], 10) >= 4
-}
-
 export * as ProviderTransform from "./transform"
