@@ -108,10 +108,19 @@ export default [
     }
 
     if (treeParentID !== undefined) {
-      db.update(SessionTable)
-        .set({ leaf_id: id })
+      const current = db
+        .select({ leaf_id: SessionTable.leaf_id })
+        .from(SessionTable)
         .where(eq(SessionTable.id, sessionID))
-        .run()
+        .get()
+      // Only advance leaf forward — prevents cost/metadata updates on older
+      // messages from resetting the leaf behind newer messages in the chain.
+      if (!current?.leaf_id || id > current.leaf_id) {
+        db.update(SessionTable)
+          .set({ leaf_id: id })
+          .where(eq(SessionTable.id, sessionID))
+          .run()
+      }
     }
   }),
 

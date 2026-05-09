@@ -574,11 +574,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       task: MessageV2.SubtaskPart
       model: Provider.Model
       lastUser: MessageV2.User
+      lastAssistant: MessageV2.Assistant | undefined
       sessionID: SessionID
       session: Session.Info
       msgs: MessageV2.WithParts[]
     }) {
-      const { task, model, lastUser, sessionID, session, msgs } = input
+      const { task, model, lastUser, lastAssistant, sessionID, session, msgs } = input
       const ctx = yield* InstanceState.context
       const promptOps = yield* ops()
       const { task: taskTool } = yield* registry.named()
@@ -587,7 +588,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         id: MessageID.ascending(),
         role: "assistant",
         parentID: lastUser.id,
-        treeParentID: lastUser.id,
+        treeParentID: lastAssistant?.id ?? lastUser.id,
         sessionID,
         mode: task.agent,
         agent: task.agent,
@@ -1490,7 +1491,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const task = tasks.pop()
 
           if (task?.type === "subtask") {
-            yield* handleSubtask({ task, model, lastUser, sessionID, session, msgs })
+            yield* handleSubtask({ task, model, lastUser, lastAssistant, sessionID, session, msgs })
             continue
           }
 
@@ -1530,7 +1531,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const msg: MessageV2.Assistant = {
             id: MessageID.ascending(),
             parentID: lastUser.id,
-            treeParentID: lastUser.id,
+            treeParentID: lastAssistant?.id ?? lastUser.id,
             role: "assistant",
             mode: agent.name,
             agent: agent.name,
