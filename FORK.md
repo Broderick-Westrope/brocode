@@ -28,10 +28,6 @@ Anthropic OAuth is a first-class auth method on the `anthropic` provider. Connec
 
 Reads credentials from macOS Keychain or `~/.claude/.credentials.json`, refreshes tokens automatically, and sends requests through the normal `@ai-sdk/anthropic` pipeline. Injects Claude Code identity and billing headers via `system.transform` hook. Removes the dependency on the `opencode-claude-auth` third-party plugin.
 
-### RTK wrapper prefix stripping for permissions
-
-The permission arity system strips known wrapper prefixes (like `rtk`) from bash command tokens before matching against the arity table. This fixes permission patterns not matching when commands are run through wrapper scripts.
-
 ### Compact skill listing
 
 The system prompt uses a compact markdown list for skills (name + description only) instead of full XML with file paths. Saves ~3-5K tokens for large skill sets. Skills without descriptions are excluded.

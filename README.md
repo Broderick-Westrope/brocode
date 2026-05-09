@@ -8,5 +8,4 @@
 In addition to the changes present in this repo, I like to do the following with my BroCode setup:
 
 - Have a straightforward way to utilise purpose-built agents with [oh-my-opencode-slim](https://github.com/alvinunreal/oh-my-opencode-slim).
-- Save context/costs for some agent-invoked bash tools thanks to [rtk](https://github.com/rtk-ai/rtk).
 - Plugin [claude-essentials](https://github.com/Broderick-Westrope/claude-essentials) which is just a library of skills, commands, and agents that I've built from forking someone else's version.
