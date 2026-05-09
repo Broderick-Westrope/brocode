@@ -471,7 +471,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           ),
           execute: async (args: { name: string }) => {
             const result = await run.promise(mcp.enable(args.name))
-            return JSON.stringify(result)
+            return {
+              title: "",
+              metadata: {},
+              output: JSON.stringify(result),
+            }
           },
         })
       }
