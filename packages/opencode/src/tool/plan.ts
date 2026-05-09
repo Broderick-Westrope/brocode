@@ -10,7 +10,7 @@ import { type SessionID, MessageID, PartID } from "../session/schema"
 import EXIT_DESCRIPTION from "./plan-exit.txt"
 
 function getLastModel(sessionID: SessionID) {
-  for (const item of MessageV2.stream(sessionID)) {
+  for (const item of [...MessageV2.streamBranch(sessionID)].reverse()) {
     if (item.info.role === "user" && item.info.model) return item.info.model
   }
   return undefined

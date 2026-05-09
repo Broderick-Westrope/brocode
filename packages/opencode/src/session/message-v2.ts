@@ -1136,7 +1136,7 @@ export function filterCompacted(msgs: Iterable<WithParts>) {
 }
 
 export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: SessionID) {
-  return filterCompacted(stream(sessionID))
+  return filterCompacted([...streamBranch(sessionID)].reverse())
 })
 
 export function fromError(
