@@ -11,6 +11,9 @@ import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID, PartID } from "./schema"
 import { SessionRunState } from "./run-state"
 import { SessionSummary } from "./summary"
+import { Database } from "@/storage/db"
+import { MessageTable } from "./session.sql"
+import { and, eq, gt, isNotNull, sql } from "drizzle-orm"
 
 const log = Log.create({ service: "session.revert" })
 
@@ -42,6 +45,22 @@ export const layer = Layer.effect(
 
     const revert = Effect.fn("SessionRevert.revert")(function* (input: RevertInput) {
       yield* state.assertNotBusy(input.sessionID)
+      const branches = yield* Effect.sync(() =>
+        Database.use((db) =>
+          db
+            .select({ tree_parent_id: MessageTable.tree_parent_id })
+            .from(MessageTable)
+            .where(and(eq(MessageTable.session_id, input.sessionID), isNotNull(MessageTable.tree_parent_id)))
+            .groupBy(MessageTable.tree_parent_id)
+            .having(gt(sql<number>`count(*)`, 1))
+            .limit(1)
+            .all(),
+        ),
+      )
+      if (branches.length > 0)
+        throw new Error(
+          "Revert is not supported on sessions with branches. Use /tree to navigate to a previous point instead.",
+        )
       const all = yield* sessions.messages({ sessionID: input.sessionID })
       let lastUser: MessageV2.User | undefined
       const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
