@@ -51,11 +51,21 @@ Add `lazy_description?: string` to both `Local` and `Remote` schemas. Interactio
 - If `status === "needs_auth"`: return `{ enabled: false, reason: "MCP 'name' requires OAuth authentication. The user should run: opencode mcp auth name" }`
 - Otherwise: return `{ enabled: false, reason: "MCP 'name' is in status 'X' and cannot be enabled" }`
 
+**New `toLazy(name)` method:**
+- If `status === "connected"` and MCP has `lazy_description` in config: transition to `"lazy"`, publish `ToolsChanged` bus event (tools disappear, discovery block reappears)
+- If MCP has no `lazy_description`: return error (can't return to lazy — it was never lazy)
+- If `status === "lazy"`: no-op
+
+**Manual operations (TUI/CLI):** Three actions available for lazy-capable MCPs:
+- **Enable:** `"lazy"` → `"connected"` (same as agent `enable_mcp`)
+- **Disable:** `"lazy"` or `"connected"` → `"disabled"` (hard off, uses existing `disconnect()`)
+- **Return to lazy:** `"connected"` → `"lazy"` (uses new `toLazy()`, only for MCPs with `lazy_description`)
+
 **`tools()` method:** No change needed — already filters to `status === "connected"`.
 
 **CLI status display (`cli/cmd/mcp.ts`):** Add handling for `"lazy"` status with a distinct icon (e.g., `"◌"`) and label like `"available (lazy)"`.
 
-**TUI dialog (`dialog-mcp.tsx`):** Handle `"lazy"` status display.
+**TUI dialog (`dialog-mcp.tsx`):** Handle `"lazy"` status display. Show the return-to-lazy action only for connected MCPs that have `lazy_description`.
 
 **SDK regeneration:** After adding `StatusLazy` to the union, regenerate the JS SDK via `./packages/sdk/js/script/build.ts`.
 
