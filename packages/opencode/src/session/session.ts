@@ -816,6 +816,11 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       fromLeafID?: MessageID
       model?: string
     }) {
+      // Validate messageID belongs to this session
+      yield* Effect.try({
+        try: () => MessageV2.get({ sessionID: input.sessionID, messageID: input.messageID }),
+        catch: () => new NotFoundError({ message: `Message ${input.messageID} not found in session ${input.sessionID}` }),
+      }).pipe(Effect.orDie)
       // Neither provided: simple navigation
       if (!input.summary && !input.fromLeafID) {
         leafHead.set(input.sessionID, input.messageID)
@@ -824,6 +829,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       }
       // Only one provided: invalid state, treat as simple navigation
       if (!input.summary || !input.fromLeafID) {
+        log.warn("branchTo: partial summary inputs, falling back to simple navigation", { sessionID: input.sessionID, summary: !!input.summary, fromLeafID: !!input.fromLeafID })
         leafHead.set(input.sessionID, input.messageID)
         yield* patch(input.sessionID, { leafID: input.messageID })
         return
@@ -864,15 +870,20 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
         workspaceID: original.workspaceID,
         title,
       })
-      const ancestorPath = MessageV2.getAncestorPath(input.sessionID, original.leafID)
       const idMap = new Map<string, MessageID>()
 
-      for (const messageID of ancestorPath) {
-        const msg = MessageV2.get({ sessionID: input.sessionID, messageID })
+      for (const msg of MessageV2.streamBranch(input.sessionID, original.leafID)) {
         const newID = MessageID.ascending()
-        idMap.set(messageID, newID)
+        idMap.set(msg.info.id, newID)
 
         const treeParentID = msg.info.treeParentID ? idMap.get(msg.info.treeParentID) : undefined
+        if (msg.info.treeParentID && !treeParentID) {
+          log.warn("clone: treeParentID not found in ancestor path, creating disconnected node", {
+            sessionID: input.sessionID,
+            messageID: msg.info.id,
+            treeParentID: msg.info.treeParentID,
+          })
+        }
         const parentID = msg.info.role === "assistant" && msg.info.parentID ? idMap.get(msg.info.parentID) : undefined
         const cloned = yield* updateMessage({
           ...msg.info,
@@ -896,8 +907,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
         }
       }
 
-      const lastNewID = ancestorPath.length > 0 ? idMap.get(ancestorPath[ancestorPath.length - 1]!) : undefined
-      if (lastNewID) yield* patch(session.id, { leafID: lastNewID })
+      const lastID = [...idMap.values()].at(-1)
+      if (lastID) yield* patch(session.id, { leafID: lastID })
 
       return session
     })
