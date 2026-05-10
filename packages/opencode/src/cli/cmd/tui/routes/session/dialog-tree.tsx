@@ -19,11 +19,39 @@ export function DialogTree(props: {
   const sync = useSync()
   const dialog = useDialog()
   const [collapsed, setCollapsed] = createSignal(new Set<string>())
+  const [selectedValue, setSelectedValue] = createSignal<string | undefined>()
   let selectRef: DialogSelectRef<string> | undefined
 
   onMount(() => {
     dialog.setSize("large")
   })
+
+  // Re-open the tree dialog after a sub-dialog (label/delete) completes.
+  // Creates a fresh DialogTree instance but preserves session context.
+  function reopenTree() {
+    dialog.replace(() => (
+      <DialogTree
+        sessionID={props.sessionID}
+        leafID={props.leafID}
+        onBranch={props.onBranch}
+        onDelete={props.onDelete}
+        onLabel={props.onLabel}
+      />
+    ))
+  }
+
+  // Check if a subtree rooted at msgID overlaps the current branch
+  function canDelete(msgID: string): boolean {
+    const data = computed()
+    if (data.ancestorSet.has(msgID)) return false
+    const queue = [...(data.childrenMap.get(msgID) ?? [])]
+    while (queue.length > 0) {
+      const child = queue.pop()!
+      if (data.ancestorSet.has(child.id)) return false
+      queue.push(...(data.childrenMap.get(child.id) ?? []))
+    }
+    return true
+  }
 
   useKeyboard((evt) => {
     // Don't process character keybinds while filtering
@@ -42,8 +70,6 @@ export function DialogTree(props: {
       const msgID = data.optionToMsg.get(sel.value)
       if (!msgID) return
       const currentLabel = data.msgMap.get(msgID)?.label ?? ""
-      // Use dialog.replace to show the label prompt — <Show> switching
-      // inside an existing dialog doesn't trigger visual updates in opentui.
       DialogPrompt.show(dialog, "Set Message Label", {
         value: currentLabel,
         placeholder: "Enter label (empty to clear)",
@@ -51,6 +77,7 @@ export function DialogTree(props: {
         if (value !== null) {
           props.onLabel!(msgID, value.trim() || undefined)
         }
+        reopenTree()
       })
       return
     }
@@ -61,12 +88,11 @@ export function DialogTree(props: {
       const data = computed()
       const msgID = data.optionToMsg.get(sel.value)
       if (!msgID) return
-      if (data.ancestorSet.has(msgID)) return
+      if (!canDelete(msgID)) return
       let count = 0
       const queue = [...(data.childrenMap.get(msgID) ?? [])]
       while (queue.length > 0) {
         const child = queue.pop()!
-        if (data.ancestorSet.has(child.id)) return
         count++
         queue.push(...(data.childrenMap.get(child.id) ?? []))
       }
@@ -80,6 +106,7 @@ export function DialogTree(props: {
         if (value === "y") {
           props.onDelete!(msgID)
         }
+        reopenTree()
       })
       return
     }
@@ -109,13 +136,9 @@ export function DialogTree(props: {
     }
 
     // Find compacted messages on the current branch.
-    // A completed compaction: user message with a compaction part that has tail_start_id,
-    // followed by an assistant with summary=true and finish set. Everything before
-    // tail_start_id on the branch is compacted (not visible to the LLM).
     const compactedSet = new Set<string>()
     if (ancestorSet.size > 0) {
       const ancestorList = [...ancestorSet]
-      // Walk from leaf towards root, find the latest compaction boundary
       for (const id of ancestorList) {
         const msg = msgMap.get(id)
         if (msg?.role !== "user") continue
@@ -124,13 +147,11 @@ export function DialogTree(props: {
           | { type: "compaction"; tail_start_id: string }
           | undefined
         if (!compactionPart) continue
-        // Check that the paired assistant response completed the summary
         const childMsgs = childrenMap.get(msg.id) ?? []
         const summaryAssistant = childMsgs.find(
           (m) => m.role === "assistant" && m.summary && m.finish && !m.error,
         )
         if (!summaryAssistant) continue
-        // Found a completed compaction — mark everything before tail_start_id as compacted
         const tailID = compactionPart.tail_start_id
         let foundTail = false
         for (const ancestorID of ancestorList) {
@@ -138,12 +159,10 @@ export function DialogTree(props: {
           if (foundTail) break
           compactedSet.add(ancestorID)
         }
-        break // only need the latest compaction
+        break
       }
     }
 
-    // Walk the continuation chain from a first assistant to find the last
-    // assistant in the same logical response (for preview text and navigation).
     function lastContinuation(startID: string) {
       let current = msgMap.get(startID)!
       while (true) {
@@ -171,9 +190,6 @@ export function DialogTree(props: {
     function walk(parentID: string | null, depth: number) {
       const children = (childrenMap.get(parentID) ?? []).toSorted((a, b) => b.time.created - a.time.created)
       for (const msg of children) {
-        // Skip continuation assistants (tool-call loop iterations whose
-        // treeParentID points to another assistant) — they're part of the
-        // same logical response and not meaningful branch points.
         const parentMsg = msg.treeParentID ? msgMap.get(msg.treeParentID) : undefined
         if (msg.role === "assistant" && parentMsg?.role === "assistant") {
           walk(msg.id, depth)
@@ -184,10 +200,6 @@ export function DialogTree(props: {
         const isCompacted = compactedSet.has(msg.id)
         const branchMarker = isCompacted ? "○ " : ancestorSet.has(msg.id) ? "● " : "  "
         const role = msg.role === "user" ? "U" : "A"
-
-        // For assistants, resolve the last continuation in the chain so the
-        // preview shows actual output text and navigation lands at the end
-        // of the full response (not the first tool-call message).
         const tail = msg.role === "assistant" ? lastContinuation(msg.id) : undefined
 
         let preview = ""
@@ -204,7 +216,6 @@ export function DialogTree(props: {
             preview = textPart?.text?.replace(/\n/g, " ")?.slice(0, 60) ?? "[no text]"
           }
         } else {
-          // Show preview from the tail (last continuation), falling back to this message
           preview = assistantPreview(tail ?? msg)
           if (preview === "[response]" && tail && tail.id !== msg.id) preview = assistantPreview(msg)
         }
@@ -257,6 +268,70 @@ export function DialogTree(props: {
 
   const options = createMemo(() => computed().result)
 
+  // Determine if delete is valid for the currently selected node
+  const deleteAllowed = createMemo(() => {
+    const sel = selectedValue()
+    if (!sel) return false
+    const data = computed()
+    const msgID = data.optionToMsg.get(sel)
+    if (!msgID) return false
+    return canDelete(msgID)
+  })
+
+  // Build keybind array reactively so footer hints update with selection
+  const keybinds = createMemo(() => [
+    {
+      keybind: Keybind.parse("left")[0],
+      title: "Collapse",
+      onTrigger: (option: DialogSelectOption<string>) => {
+        const data = computed()
+        const msgID = data.optionToMsg.get(option.value)
+        if (!msgID) return
+        const hasChildren = (data.childrenMap.get(msgID) ?? []).some((c) => {
+          const p = c.treeParentID ? data.msgMap.get(c.treeParentID) : undefined
+          return !(c.role === "assistant" && p?.role === "assistant")
+        })
+        if (!collapsed().has(msgID) && hasChildren) {
+          setCollapsed((prev) => { const next = new Set(prev); next.add(msgID); return next })
+          return
+        }
+        let parentID = data.msgMap.get(msgID)?.treeParentID
+        while (parentID) {
+          const parentOptIdx = options().findIndex((o) => data.optionToMsg.get(o.value) === parentID)
+          if (parentOptIdx >= 0 && selectRef) {
+            selectRef.moveTo(parentOptIdx)
+            return
+          }
+          parentID = data.msgMap.get(parentID)?.treeParentID
+        }
+      },
+    },
+    {
+      keybind: Keybind.parse("right")[0],
+      title: "Expand",
+      onTrigger: (option: DialogSelectOption<string>) => {
+        const msgID = computed().optionToMsg.get(option.value)
+        if (!msgID) return
+        if (collapsed().has(msgID)) {
+          setCollapsed((prev) => { const next = new Set(prev); next.delete(msgID); return next })
+        }
+      },
+    },
+    // Footer hint display only — actual handlers are in useKeyboard above
+    ...(props.onLabel ? [{
+      keybind: Keybind.parse("l")[0],
+      title: "Label",
+      side: "right" as const,
+      onTrigger: () => {},
+    }] : []),
+    ...(props.onDelete && deleteAllowed() ? [{
+      keybind: Keybind.parse("d")[0],
+      title: "Delete",
+      side: "right" as const,
+      onTrigger: () => {},
+    }] : []),
+  ])
+
   return (
     <DialogSelect
       title="Session Tree"
@@ -264,63 +339,8 @@ export function DialogTree(props: {
       filterMode="on-demand"
       placeholder="/ to filter · Enter to select · Esc to cancel"
       ref={(r) => { selectRef = r }}
-      keybind={[
-        {
-          keybind: Keybind.parse("left")[0],
-          title: "Collapse",
-          onTrigger: (option) => {
-            const data = computed()
-            const msgID = data.optionToMsg.get(option.value)
-            if (!msgID) return
-            const hasChildren = (data.childrenMap.get(msgID) ?? []).some((c) => {
-              const p = c.treeParentID ? data.msgMap.get(c.treeParentID) : undefined
-              return !(c.role === "assistant" && p?.role === "assistant")
-            })
-            if (!collapsed().has(msgID) && hasChildren) {
-              setCollapsed((prev) => { const next = new Set(prev); next.add(msgID); return next })
-              return
-            }
-            // Already collapsed or leaf → navigate to parent.
-            // Walk up treeParentID chain to find the nearest ancestor
-            // that has an option in the tree (skips continuation assistants).
-            let parentID = data.msgMap.get(msgID)?.treeParentID
-            while (parentID) {
-              const parentOptIdx = options().findIndex((o) => data.optionToMsg.get(o.value) === parentID)
-              if (parentOptIdx >= 0 && selectRef) {
-                selectRef.moveTo(parentOptIdx)
-                return
-              }
-              parentID = data.msgMap.get(parentID)?.treeParentID
-            }
-          },
-        },
-        {
-          keybind: Keybind.parse("right")[0],
-          title: "Expand",
-          onTrigger: (option) => {
-            const msgID = computed().optionToMsg.get(option.value)
-            if (!msgID) return
-            if (collapsed().has(msgID)) {
-              setCollapsed((prev) => { const next = new Set(prev); next.delete(msgID); return next })
-            }
-          },
-        },
-        // l and d are handled in DialogTree's useKeyboard because focused
-        // inputs consume character keys before DialogSelect's keybind matching.
-        // These entries exist for footer hint display only.
-        ...(props.onLabel ? [{
-          keybind: Keybind.parse("l")[0],
-          title: "Label",
-          side: "right" as const,
-          onTrigger: () => {},
-        }] : []),
-        ...(props.onDelete ? [{
-          keybind: Keybind.parse("d")[0],
-          title: "Delete",
-          side: "right" as const,
-          onTrigger: () => {},
-        }] : []),
-      ]}
+      onMove={(option) => setSelectedValue(option.value)}
+      keybind={keybinds()}
     />
   )
 }
