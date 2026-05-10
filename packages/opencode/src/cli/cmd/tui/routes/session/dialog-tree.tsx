@@ -246,10 +246,18 @@ export function DialogTree(props: {
                       setCollapsed((prev) => { const next = new Set(prev); next.add(msgID); return next })
                       return
                     }
-                    const msg = data.msgMap.get(msgID)
-                    if (!msg?.treeParentID) return
-                    const parentIdx = options().findIndex((o) => data.optionToMsg.get(o.value) === msg.treeParentID)
-                    if (parentIdx >= 0 && selectRef) selectRef.moveTo(parentIdx)
+                    // Already collapsed or leaf → navigate to parent.
+                    // Walk up treeParentID chain to find the nearest ancestor
+                    // that has an option in the tree (skips continuation assistants).
+                    let parentID = data.msgMap.get(msgID)?.treeParentID
+                    while (parentID) {
+                      const parentOptIdx = options().findIndex((o) => data.optionToMsg.get(o.value) === parentID)
+                      if (parentOptIdx >= 0 && selectRef) {
+                        selectRef.moveTo(parentOptIdx)
+                        return
+                      }
+                      parentID = data.msgMap.get(parentID)?.treeParentID
+                    }
                   },
                 },
                 {

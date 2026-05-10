@@ -208,7 +208,6 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
         setStore("filter", "")
         props.onFilter?.("")
       })
-      input?.blur()
       return
     }
 
@@ -244,8 +243,18 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
         const s = selected()
         if (s) {
           evt.preventDefault()
+          evt.stopPropagation()
           item.onTrigger(s)
         }
+      }
+    }
+
+    // In on-demand mode with filter inactive, prevent all unhandled keys from
+    // reaching the focused input (which would type into it) or leaking to
+    // elements behind the dialog. Allow escape through so the dialog can close.
+    if (props.filterMode === "on-demand" && !store.filterActive && !evt.defaultPrevented) {
+      if (evt.name !== "escape" && !(evt.ctrl && evt.name === "c")) {
+        evt.preventDefault()
       }
     }
   })
@@ -284,21 +293,22 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           <box paddingTop={1}>
             <input
               onInput={(e) => {
+                if (props.filterMode === "on-demand" && !store.filterActive) return
                 batch(() => {
                   setStore("filter", e)
                   props.onFilter?.(e)
                 })
               }}
               focusedBackgroundColor={theme.backgroundPanel}
-              cursorColor={theme.primary}
-              focusedTextColor={theme.textMuted}
+              cursorColor={store.filterActive ? theme.primary : theme.backgroundPanel}
+              focusedTextColor={store.filterActive ? theme.textMuted : theme.backgroundPanel}
               ref={(r) => {
                 input = r
                 input.traits = { status: "FILTER" }
                 setTimeout(() => {
                   if (!input) return
                   if (input.isDestroyed) return
-                  if (store.filterActive) input.focus()
+                  input.focus()
                 }, 1)
               }}
               placeholder={props.filterMode === "on-demand" && !store.filterActive ? "/ to filter" : (props.placeholder ?? "Search")}
