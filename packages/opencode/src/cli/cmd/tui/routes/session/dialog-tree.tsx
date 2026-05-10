@@ -76,6 +76,29 @@ export function DialogTree(props: {
       }
     }
 
+    // Walk the continuation chain from a first assistant to find the last
+    // assistant in the same logical response (for preview text and navigation).
+    function lastContinuation(startID: string) {
+      let current = msgMap.get(startID)!
+      while (true) {
+        const next = (childrenMap.get(current.id) ?? []).find((c) => c.role === "assistant")
+        if (!next) break
+        const parent = next.treeParentID ? msgMap.get(next.treeParentID) : undefined
+        if (parent?.role !== "assistant") break
+        current = next
+      }
+      return current
+    }
+
+    function assistantPreview(msg: (typeof messages)[0]) {
+      const parts = sync.data.part[msg.id] ?? []
+      const textPart = parts.findLast((p) => p.type === "text" && !p.synthetic) as TextPart | undefined
+      if (textPart?.text) return textPart.text.replace(/\n/g, " ").slice(0, 60)
+      const toolPart = parts.find((p) => p.type === "tool") as ToolPart | undefined
+      if (toolPart) return `[tool: ${toolPart.tool}]`
+      return "[response]"
+    }
+
     const result: DialogSelectOption<string>[] = []
 
     function walk(parentID: string | null, depth: number) {
@@ -95,6 +118,11 @@ export function DialogTree(props: {
         const branchMarker = isCompacted ? "○ " : ancestorSet.has(msg.id) ? "● " : "  "
         const role = msg.role === "user" ? "U" : "A"
 
+        // For assistants, resolve the last continuation in the chain so the
+        // preview shows actual output text and navigation lands at the end
+        // of the full response (not the first tool-call message).
+        const tail = msg.role === "assistant" ? lastContinuation(msg.id) : undefined
+
         let preview = ""
         if (msg.role === "user") {
           const parts = sync.data.part[msg.id] ?? []
@@ -109,20 +137,17 @@ export function DialogTree(props: {
             preview = textPart?.text?.replace(/\n/g, " ")?.slice(0, 60) ?? "[no text]"
           }
         } else {
-          const parts = sync.data.part[msg.id] ?? []
-          const toolPart = parts.find((p) => p.type === "tool") as ToolPart | undefined
-          const textPart = parts.find((p) => p.type === "text") as TextPart | undefined
-          if (toolPart) preview = `[tool: ${toolPart.tool}]`
-          else if (textPart) preview = textPart.text?.replace(/\n/g, " ")?.slice(0, 60) ?? ""
-          else preview = "[response]"
+          // Show preview from the tail (last continuation), falling back to this message
+          preview = assistantPreview(tail ?? msg)
+          if (preview === "[response]" && tail && tail.id !== msg.id) preview = assistantPreview(msg)
         }
 
-        const isLeaf = msg.id === props.leafID
+        const isLeaf = tail ? tail.id === props.leafID || msg.id === props.leafID : msg.id === props.leafID
         const hasBranches = (childrenMap.get(msg.id)?.length ?? 0) > 1
 
         result.push({
           title: `${indent}${branchMarker}${role}: ${preview}${isLeaf ? " ← current" : ""}${hasBranches ? " ⑂" : ""}`,
-          value: msg.id,
+          value: tail?.id ?? msg.id,
           footer: Locale.time(msg.time.created),
           onSelect: (dialog) => {
             if (msg.role === "user") {
@@ -136,7 +161,7 @@ export function DialogTree(props: {
               )
               props.onBranch(msg.treeParentID ?? msg.id, prompt)
             } else {
-              props.onBranch(msg.id)
+              props.onBranch(tail?.id ?? msg.id)
             }
             dialog.clear()
           },
