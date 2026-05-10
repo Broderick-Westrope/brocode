@@ -42,14 +42,12 @@ export const layer = Layer.effect(
         toAncestorID: MessageID
         model?: { id: string; providerID: string }
       }) {
-        const ancestorPath = MessageV2.getAncestorPath(input.sessionID, input.fromLeafID)
-        const ancestorIdx = ancestorPath.indexOf(input.toAncestorID)
+        const allBranchMsgs = [...MessageV2.streamBranch(input.sessionID, input.fromLeafID)]
+        const ancestorIdx = allBranchMsgs.findIndex((m) => m.info.id === input.toAncestorID)
         if (ancestorIdx < 0) return undefined
 
-        const branchSlice = ancestorPath.slice(ancestorIdx + 1)
-        if (branchSlice.length === 0) return undefined
-
-        const branchMessages = branchSlice.map((id) => MessageV2.get({ sessionID: input.sessionID, messageID: id }))
+        const branchMessages = allBranchMsgs.slice(ancestorIdx + 1)
+        if (branchMessages.length === 0) return undefined
 
         const lastUserMsg = [...branchMessages]
           .reverse()
