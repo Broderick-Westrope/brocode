@@ -6,7 +6,12 @@
       "packages/opencode/migration/*": "ask",
     },
   },
-  "mcp": {},
+  "mcp": {
+    "terminal": {
+      "type": "local",
+      "command": ["npx", "-y", "mcp-interactive-terminal"]
+    }
+  },
   "tools": {
     "github-triage": false,
     "github-pr-search": false,
