@@ -1465,8 +1465,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           // Keep the loop running so tool results can be sent back to the model.
           // Skip provider-executed tool parts — those were fully handled within the
           // provider's stream (e.g. DWS Agent Platform) and don't need a re-loop.
+          // Also skip already-completed/errored tool calls — these appear in compaction
+          // tails where the original conversation already processed the tool results.
           const hasToolCalls =
-            lastAssistantMsg?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false
+            lastAssistantMsg?.parts.some(
+              (part) =>
+                part.type === "tool" &&
+                !part.metadata?.providerExecuted &&
+                part.state.status !== "completed" &&
+                part.state.status !== "error",
+            ) ?? false
 
           if (
             lastAssistant?.finish &&

@@ -504,6 +504,11 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
     const storage = yield* Storage.Service
     const sync = yield* SyncEvent.Service
 
+    // In-memory guard to avoid redundant leafID patches during streaming.
+    // Each session maps to the last leafID we patched — updateMessage only
+    // calls patch() when the message ID is strictly greater.
+    const leafHead = new Map<string, string>()
+
     const createNext = Effect.fn("Session.createNext")(function* (input: {
       id?: SessionID
       title?: string
@@ -599,6 +604,13 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
     const updateMessage = <T extends MessageV2.Info>(msg: T): Effect.Effect<T> =>
       Effect.gen(function* () {
         yield* sync.run(MessageV2.Event.Updated, { sessionID: msg.sessionID, info: msg })
+        if (msg.treeParentID !== undefined) {
+          const last = leafHead.get(msg.sessionID)
+          if (!last || msg.id > last) {
+            leafHead.set(msg.sessionID, msg.id)
+            yield* patch(msg.sessionID, { leafID: msg.id })
+          }
+        }
         return msg
       }).pipe(Effect.withSpan("Session.updateMessage"))
 
@@ -806,11 +818,13 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
     }) {
       // Neither provided: simple navigation
       if (!input.summary && !input.fromLeafID) {
+        leafHead.set(input.sessionID, input.messageID)
         yield* patch(input.sessionID, { leafID: input.messageID })
         return
       }
       // Only one provided: invalid state, treat as simple navigation
       if (!input.summary || !input.fromLeafID) {
+        leafHead.set(input.sessionID, input.messageID)
         yield* patch(input.sessionID, { leafID: input.messageID })
         return
       }
