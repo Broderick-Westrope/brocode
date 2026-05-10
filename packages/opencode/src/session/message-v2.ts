@@ -385,6 +385,7 @@ const messageBase = {
   id: MessageID,
   sessionID: SessionID,
   treeParentID: Schema.optional(MessageID),
+  label: Schema.optional(Schema.String),
 }
 
 export const User = Schema.Struct({
@@ -628,7 +629,18 @@ const PartRemovedEventSchema = Schema.Struct({
   partID: PartID,
 })
 
+const SubtreeRemovedEventSchema = Schema.Struct({
+  sessionID: SessionID,
+  messageIDs: Schema.Array(MessageID),
+})
+
 export const Event = {
+  SubtreeRemoved: SyncEvent.define({
+    type: "message.subtree_removed",
+    version: 1,
+    aggregate: "sessionID",
+    schema: SubtreeRemovedEventSchema,
+  }),
   Updated: SyncEvent.define({
     type: "message.updated",
     version: 1,

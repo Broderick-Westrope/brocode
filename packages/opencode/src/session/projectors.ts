@@ -1,6 +1,7 @@
 import { NotFoundError } from "@/storage/storage"
 import { eq } from "drizzle-orm"
 import { and } from "drizzle-orm"
+import { inArray } from "drizzle-orm"
 import { SyncEvent } from "@/sync"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
@@ -114,6 +115,12 @@ export default [
   SyncEvent.project(MessageV2.Event.Removed, (db, data) => {
     db.delete(MessageTable)
       .where(and(eq(MessageTable.id, data.messageID), eq(MessageTable.session_id, data.sessionID)))
+      .run()
+  }),
+
+  SyncEvent.project(MessageV2.Event.SubtreeRemoved, (db, data) => {
+    db.delete(MessageTable)
+      .where(and(inArray(MessageTable.id, data.messageIDs), eq(MessageTable.session_id, data.sessionID)))
       .run()
   }),
 

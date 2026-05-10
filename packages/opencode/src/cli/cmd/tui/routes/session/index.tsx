@@ -525,6 +525,19 @@ export function Session() {
               })
               if (promptInfo) prompt?.set(promptInfo)
             }}
+            onDelete={async (messageID) => {
+              await sdk.client.session.deleteSubtree({
+                sessionID: currentSession.id,
+                messageID,
+              })
+            }}
+            onLabel={async (messageID, label) => {
+              await sdk.client.session.setLabel({
+                sessionID: currentSession.id,
+                messageID,
+                label,
+              })
+            }}
           />
         ))
       },

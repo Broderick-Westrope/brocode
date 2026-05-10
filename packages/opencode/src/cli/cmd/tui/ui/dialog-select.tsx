@@ -18,6 +18,7 @@ export interface DialogSelectProps<T> {
   placeholder?: string
   options: DialogSelectOption<T>[]
   flat?: boolean
+  filterMode?: "always" | "on-demand"
   ref?: (ref: DialogSelectRef<T>) => void
   onMove?: (option: DialogSelectOption<T>) => void
   onFilter?: (query: string) => void
@@ -51,6 +52,8 @@ export interface DialogSelectOption<T = any> {
 export type DialogSelectRef<T> = {
   filter: string
   filtered: DialogSelectOption<T>[]
+  filterActive: boolean
+  moveTo: (index: number) => void
 }
 
 export function DialogSelect<T>(props: DialogSelectProps<T>) {
@@ -63,6 +66,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     selected: 0,
     filter: "",
     input: "keyboard" as "keyboard" | "mouse",
+    filterActive: props.filterMode !== "on-demand",
   })
 
   createEffect(
@@ -196,6 +200,26 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   useKeyboard((evt) => {
     setStore("input", "keyboard")
 
+    if (props.filterMode === "on-demand" && store.filterActive && evt.name === "escape") {
+      evt.preventDefault()
+      evt.stopPropagation()
+      batch(() => {
+        setStore("filterActive", false)
+        setStore("filter", "")
+        props.onFilter?.("")
+      })
+      input?.blur()
+      return
+    }
+
+    if (props.filterMode === "on-demand" && !store.filterActive && evt.name === "/") {
+      evt.preventDefault()
+      evt.stopPropagation()
+      setStore("filterActive", true)
+      setTimeout(() => input?.focus(), 1)
+      return
+    }
+
     if (evt.name === "up" || (evt.ctrl && evt.name === "p")) move(-1)
     if (evt.name === "down" || (evt.ctrl && evt.name === "n")) move(1)
     if (evt.name === "pageup") move(-10)
@@ -215,6 +239,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
 
     for (const item of props.keybind ?? []) {
       if (item.disabled || !item.keybind) continue
+      if (props.filterMode === "on-demand" && store.filterActive) continue
       if (Keybind.match(item.keybind, keybind.parse(evt))) {
         const s = selected()
         if (s) {
@@ -233,6 +258,10 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     get filtered() {
       return filtered()
     },
+    get filterActive() {
+      return store.filterActive
+    },
+    moveTo,
   }
   props.ref?.(ref)
 
@@ -269,10 +298,10 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                 setTimeout(() => {
                   if (!input) return
                   if (input.isDestroyed) return
-                  input.focus()
+                  if (store.filterActive) input.focus()
                 }, 1)
               }}
-              placeholder={props.placeholder ?? "Search"}
+              placeholder={props.filterMode === "on-demand" && !store.filterActive ? "/ to filter" : (props.placeholder ?? "Search")}
               placeholderColor={theme.textMuted}
             />
           </box>

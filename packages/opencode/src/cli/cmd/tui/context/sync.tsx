@@ -300,6 +300,25 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                 draft.splice(result.index, 1)
               }),
             )
+            // SolidJS stores have no typed deletion API; undefined clears the key
+            setStore("part", event.properties.messageID, undefined as any)
+          }
+          break
+        }
+        case "message.subtree_removed": {
+          const idSet = new Set(event.properties.messageIDs)
+          setStore(
+            "message",
+            event.properties.sessionID,
+            produce((draft) => {
+              for (let i = draft.length - 1; i >= 0; i--) {
+                if (idSet.has(draft[i].id)) draft.splice(i, 1)
+              }
+            }),
+          )
+          // SolidJS stores have no typed deletion API; undefined clears the key
+          for (const id of event.properties.messageIDs) {
+            setStore("part", id, undefined as any)
           }
           break
         }

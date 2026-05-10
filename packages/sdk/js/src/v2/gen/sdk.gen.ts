@@ -137,6 +137,8 @@ import type {
   SessionDeleteMessageErrors,
   SessionDeleteMessageResponses,
   SessionDeleteResponses,
+  SessionDeleteSubtreeErrors,
+  SessionDeleteSubtreeResponses,
   SessionDelivery,
   SessionDiffResponses,
   SessionForkErrors,
@@ -156,6 +158,8 @@ import type {
   SessionPromptResponses,
   SessionRevertErrors,
   SessionRevertResponses,
+  SessionSetLabelErrors,
+  SessionSetLabelResponses,
   SessionShareErrors,
   SessionShareResponses,
   SessionShellErrors,
@@ -3946,6 +3950,85 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/unrevert",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Delete subtree
+   *
+   * Permanently delete a message and all of its descendants from a session.
+   */
+  public deleteSubtree<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      messageID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "messageID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      SessionDeleteSubtreeResponses,
+      SessionDeleteSubtreeErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/subtree/{messageID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Set message label
+   *
+   * Set or clear a label on a message for branch identification in the tree view.
+   */
+  public setLabel<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      messageID: string
+      directory?: string
+      workspace?: string
+      label?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "messageID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "label" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<SessionSetLabelResponses, SessionSetLabelErrors, ThrowOnError>({
+      url: "/session/{sessionID}/message/{messageID}/label",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }

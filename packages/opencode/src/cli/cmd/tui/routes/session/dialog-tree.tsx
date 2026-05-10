@@ -1,26 +1,53 @@
-import { createMemo, onMount } from "solid-js"
+import { createMemo, createSignal, onMount, Show } from "solid-js"
 import { useSync } from "@tui/context/sync"
-import { DialogSelect, type DialogSelectOption } from "@tui/ui/dialog-select"
+import { DialogSelect, type DialogSelectOption, type DialogSelectRef } from "@tui/ui/dialog-select"
 import type { TextPart, ToolPart } from "@opencode-ai/sdk/v2"
 import { Locale } from "@/util/locale"
+import { Keybind } from "@/util/keybind"
 import { useDialog } from "../../ui/dialog"
 import type { PromptInfo } from "../../component/prompt/history"
+import { useKeyboard } from "@opentui/solid"
+import { DialogPrompt } from "@tui/ui/dialog-prompt"
 
 export function DialogTree(props: {
   sessionID: string
   leafID?: string
   onBranch: (messageID: string, prompt?: PromptInfo) => void
+  onDelete?: (messageID: string) => Promise<void>
+  onLabel?: (messageID: string, label: string | undefined) => Promise<void>
 }) {
   const sync = useSync()
   const dialog = useDialog()
+  const [collapsed, setCollapsed] = createSignal(new Set<string>())
+  const [confirmDelete, setConfirmDelete] = createSignal<{ msgID: string; count: number } | null>(null)
+  const [editingLabel, setEditingLabel] = createSignal<{ msgID: string; currentLabel: string } | null>(null)
+  let selectRef: DialogSelectRef<string> | undefined
 
   onMount(() => {
     dialog.setSize("large")
   })
 
-  const options = createMemo((): DialogSelectOption<string>[] => {
+  useKeyboard((evt) => {
+    if (!confirmDelete()) return
+    if (evt.name === "y") {
+      evt.preventDefault()
+      evt.stopPropagation()
+      const state = confirmDelete()!
+      setConfirmDelete(null)
+      props.onDelete?.(state.msgID)
+      return
+    }
+    if (evt.name === "n" || evt.name === "escape") {
+      evt.preventDefault()
+      evt.stopPropagation()
+      setConfirmDelete(null)
+      return
+    }
+  })
+
+  const computed = createMemo(() => {
     const messages = sync.data.message[props.sessionID] ?? []
-    if (!messages.length) return []
+    if (!messages.length) return { result: [], optionToMsg: new Map<string, string>(), childrenMap: new Map<string | null, typeof messages>(), msgMap: new Map<string, typeof messages[0]>(), ancestorSet: new Set<string>() }
 
     // Build children map and message lookup for tree traversal
     const msgMap = new Map(messages.map((m) => [m.id, m]))
@@ -48,7 +75,6 @@ export function DialogTree(props: {
     const compactedSet = new Set<string>()
     if (ancestorSet.size > 0) {
       const ancestorList = [...ancestorSet]
-      const msgMap = new Map(messages.map((m) => [m.id, m]))
       // Walk from leaf towards root, find the latest compaction boundary
       for (const id of ancestorList) {
         const msg = msgMap.get(id)
@@ -100,9 +126,10 @@ export function DialogTree(props: {
     }
 
     const result: DialogSelectOption<string>[] = []
+    const optionToMsg = new Map<string, string>()
 
     function walk(parentID: string | null, depth: number) {
-      const children = (childrenMap.get(parentID) ?? []).toSorted((a, b) => a.time.created - b.time.created)
+      const children = (childrenMap.get(parentID) ?? []).toSorted((a, b) => b.time.created - a.time.created)
       for (const msg of children) {
         // Skip continuation assistants (tool-call loop iterations whose
         // treeParentID points to another assistant) — they're part of the
@@ -143,11 +170,22 @@ export function DialogTree(props: {
         }
 
         const isLeaf = tail ? tail.id === props.leafID || msg.id === props.leafID : msg.id === props.leafID
-        const hasBranches = (childrenMap.get(msg.id)?.length ?? 0) > 1
+        const visibleChildren = (childrenMap.get(msg.id) ?? []).filter((c) => {
+          const p = c.treeParentID ? msgMap.get(c.treeParentID) : undefined
+          return !(c.role === "assistant" && p?.role === "assistant")
+        })
+        const hasVisibleChildren = visibleChildren.length > 0
+        const collapseIndicator = hasVisibleChildren
+          ? collapsed().has(msg.id) ? "▸ " : "▾ "
+          : "  "
 
+        const optionValue = tail?.id ?? msg.id
+        optionToMsg.set(optionValue, msg.id)
+
+        const labelPrefix = msg.label ? `[${msg.label}] ` : ""
         result.push({
-          title: `${indent}${branchMarker}${role}: ${preview}${isLeaf ? " ← current" : ""}${hasBranches ? " ⑂" : ""}`,
-          value: tail?.id ?? msg.id,
+          title: `${indent}${branchMarker}${collapseIndicator}${role}: ${labelPrefix}${preview}${isLeaf ? " ← current" : ""}`,
+          value: optionValue,
           footer: Locale.time(msg.time.created),
           onSelect: (dialog) => {
             if (msg.role === "user") {
@@ -167,19 +205,127 @@ export function DialogTree(props: {
           },
         })
 
-        walk(msg.id, depth + 1)
+        if (!collapsed().has(msg.id)) {
+          walk(msg.id, depth + 1)
+        }
       }
     }
 
     walk(null, 0)
-    return result
+    return { result, optionToMsg, childrenMap, msgMap, ancestorSet }
   })
 
+  const options = createMemo(() => computed().result)
+
   return (
-    <DialogSelect
-      title="Session Tree"
-      options={options()}
-      placeholder="Filter messages · Enter to select · Esc to cancel"
-    />
+    <Show
+      when={editingLabel()}
+      fallback={
+        <Show
+          when={confirmDelete()}
+          fallback={
+            <DialogSelect
+              title="Session Tree"
+              options={options()}
+              filterMode="on-demand"
+              placeholder="/ to filter · Enter to select · Esc to cancel"
+              ref={(r) => { selectRef = r }}
+              keybind={[
+                {
+                  keybind: Keybind.parse("left")[0],
+                  title: "Collapse",
+                  onTrigger: (option) => {
+                    const data = computed()
+                    const msgID = data.optionToMsg.get(option.value)
+                    if (!msgID) return
+                    const hasChildren = (data.childrenMap.get(msgID) ?? []).some((c) => {
+                      const p = c.treeParentID ? data.msgMap.get(c.treeParentID) : undefined
+                      return !(c.role === "assistant" && p?.role === "assistant")
+                    })
+                    if (!collapsed().has(msgID) && hasChildren) {
+                      setCollapsed((prev) => { const next = new Set(prev); next.add(msgID); return next })
+                      return
+                    }
+                    const msg = data.msgMap.get(msgID)
+                    if (!msg?.treeParentID) return
+                    const parentIdx = options().findIndex((o) => data.optionToMsg.get(o.value) === msg.treeParentID)
+                    if (parentIdx >= 0 && selectRef) selectRef.moveTo(parentIdx)
+                  },
+                },
+                {
+                  keybind: Keybind.parse("right")[0],
+                  title: "Expand",
+                  onTrigger: (option) => {
+                    const msgID = computed().optionToMsg.get(option.value)
+                    if (!msgID) return
+                    if (collapsed().has(msgID)) {
+                      setCollapsed((prev) => { const next = new Set(prev); next.delete(msgID); return next })
+                    }
+                  },
+                },
+                {
+                  keybind: Keybind.parse("l")[0],
+                  title: "Label",
+                  side: "right",
+                  disabled: !props.onLabel,
+                  onTrigger: (option) => {
+                    const data = computed()
+                    const msgID = data.optionToMsg.get(option.value)
+                    if (!msgID) return
+                    setEditingLabel({ msgID, currentLabel: data.msgMap.get(msgID)?.label ?? "" })
+                  },
+                },
+                {
+                  keybind: Keybind.parse("d")[0],
+                  title: "Delete",
+                  side: "right",
+                  disabled: !props.onDelete,
+                  onTrigger: (option) => {
+                    const data = computed()
+                    const msgID = data.optionToMsg.get(option.value)
+                    if (!msgID) return
+                    // Refuse if the subtree overlaps the current branch ancestors
+                    if (data.ancestorSet.has(msgID)) return
+                    // Single traversal: check ancestor guard + count descendants
+                    let count = 0
+                    const queue = [...(data.childrenMap.get(msgID) ?? [])]
+                    while (queue.length > 0) {
+                      const child = queue.pop()!
+                      if (data.ancestorSet.has(child.id)) return
+                      count++
+                      queue.push(...(data.childrenMap.get(child.id) ?? []))
+                    }
+                    setConfirmDelete({ msgID, count })
+                  },
+                },
+              ]}
+            />
+          }
+        >
+          {(confirm) => (
+            <box paddingLeft={4} paddingRight={4}>
+              <text>{confirm().count > 0 ? `Delete this message and ${confirm().count} descendants? (y/n)` : "Delete this message? (y/n)"}</text>
+            </box>
+          )}
+        </Show>
+      }
+    >
+      {(editing) => (
+        <DialogPrompt
+          title="Set Message Label"
+          value={editing().currentLabel}
+          placeholder="Enter label (empty to clear)"
+          onConfirm={(value) => {
+            props.onLabel?.(editing().msgID, value.trim() || undefined)
+            setEditingLabel(null)
+            dialog.setSize("large")
+          }}
+          onCancel={() => {
+            setEditingLabel(null)
+            dialog.setSize("large")
+          }}
+        />
+      )}
+    </Show>
   )
 }

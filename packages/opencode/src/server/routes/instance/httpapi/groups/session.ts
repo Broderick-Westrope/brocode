@@ -84,6 +84,10 @@ export const RevertPayload = Schema.Struct(Struct.omit(SessionRevert.RevertInput
 export const PermissionResponsePayload = Schema.Struct({
   response: Permission.Reply,
 })
+export const SetLabelPayload = Schema.Struct({
+  label: Schema.optional(Schema.String),
+})
+export const SetLabelResponse = Schema.Struct({ id: Schema.String })
 
 export const SessionPaths = {
   list: root,
@@ -113,8 +117,10 @@ export const SessionPaths = {
   unrevert: `${root}/:sessionID/unrevert`,
   permissions: `${root}/:sessionID/permissions/:permissionID`,
   deleteMessage: `${root}/:sessionID/message/:messageID`,
+  deleteSubtree: `${root}/:sessionID/subtree/:messageID`,
   deletePart: `${root}/:sessionID/message/:messageID/part/:partID`,
   updatePart: `${root}/:sessionID/message/:messageID/part/:partID`,
+  setLabel: `${root}/:sessionID/message/:messageID/label`,
 } as const
 
 export const SessionApi = HttpApi.make("session")
@@ -447,6 +453,17 @@ export const SessionApi = HttpApi.make("session")
               "Permanently delete a specific message and all of its parts from a session without reverting file changes.",
           }),
         ),
+        HttpApiEndpoint.delete("deleteSubtree", SessionPaths.deleteSubtree, {
+          params: { sessionID: SessionID, messageID: MessageID },
+          success: described(Schema.Array(Schema.String), "Successfully deleted subtree"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.deleteSubtree",
+            summary: "Delete subtree",
+            description: "Permanently delete a message and all of its descendants from a session.",
+          }),
+        ),
         HttpApiEndpoint.delete("deletePart", SessionPaths.deletePart, {
           params: { sessionID: SessionID, messageID: MessageID, partID: PartID },
           success: described(Schema.Boolean, "Successfully deleted part"),
@@ -466,6 +483,18 @@ export const SessionApi = HttpApi.make("session")
           OpenApi.annotations({
             identifier: "part.update",
             description: "Update a part in a message.",
+          }),
+        ),
+        HttpApiEndpoint.patch("setLabel", SessionPaths.setLabel, {
+          params: { sessionID: SessionID, messageID: MessageID },
+          payload: SetLabelPayload,
+          success: described(SetLabelResponse, "Successfully set label"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.setLabel",
+            summary: "Set message label",
+            description: "Set or clear a label on a message for branch identification in the tree view.",
           }),
         ),
       )

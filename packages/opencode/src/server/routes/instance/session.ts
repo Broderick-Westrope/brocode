@@ -782,6 +782,44 @@ export const SessionRoutes = lazy(() =>
         }),
     )
     .delete(
+      "/:sessionID/subtree/:messageID",
+      describeRoute({
+        summary: "Delete subtree",
+        description: "Permanently delete a message and all of its descendants from a session.",
+        operationId: "session.deleteSubtree",
+        responses: {
+          200: {
+            description: "Successfully deleted subtree",
+            content: {
+              "application/json": {
+                schema: resolver(z.array(z.string())),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+          messageID: MessageID.zod,
+        }),
+      ),
+      async (c) =>
+        jsonRequest("SessionRoutes.deleteSubtree", c, function* () {
+          const params = c.req.valid("param")
+          const state = yield* SessionRunState.Service
+          const session = yield* Session.Service
+          yield* state.assertNotBusy(params.sessionID)
+          const deleted = yield* session.removeSubtree({
+            sessionID: params.sessionID,
+            messageID: params.messageID,
+          })
+          return deleted
+        }),
+    )
+    .delete(
       "/:sessionID/message/:messageID/part/:partID",
       describeRoute({
         description: "Delete a part from a message",
@@ -816,6 +854,50 @@ export const SessionRoutes = lazy(() =>
             partID: params.partID,
           })
           return true
+        }),
+    )
+    .patch(
+      "/:sessionID/message/:messageID/label",
+      describeRoute({
+        summary: "Set message label",
+        description: "Set or clear a label on a message for branch identification in the tree view.",
+        operationId: "session.setLabel",
+        responses: {
+          200: {
+            description: "Successfully set label",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ id: z.string() })),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+          messageID: MessageID.zod,
+        }),
+      ),
+      validator(
+        "json",
+        z.object({
+          label: z.string().optional(),
+        }),
+      ),
+      async (c) =>
+        jsonRequest("SessionRoutes.setLabel", c, function* () {
+          const params = c.req.valid("param")
+          const body = c.req.valid("json")
+          const session = yield* Session.Service
+          const updated = yield* session.setLabel({
+            sessionID: params.sessionID,
+            messageID: params.messageID,
+            label: body.label,
+          })
+          return { id: updated.id }
         }),
     )
     .patch(

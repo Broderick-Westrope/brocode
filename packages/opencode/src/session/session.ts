@@ -462,6 +462,12 @@ export interface Interface {
   readonly remove: (sessionID: SessionID) => Effect.Effect<void, NotFound>
   readonly updateMessage: <T extends MessageV2.Info>(msg: T) => Effect.Effect<T>
   readonly removeMessage: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MessageID>
+  readonly setLabel: (input: {
+    sessionID: SessionID
+    messageID: MessageID
+    label: string | undefined
+  }) => Effect.Effect<MessageV2.Info, NotFound>
+  readonly removeSubtree: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MessageID[], NotFound>
   readonly removePart: (input: { sessionID: SessionID; messageID: MessageID; partID: PartID }) => Effect.Effect<PartID>
   readonly getPart: (input: {
     sessionID: SessionID
@@ -775,6 +781,56 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       return input.messageID
     })
 
+    const setLabel = Effect.fn("Session.setLabel")(function* (input: {
+      sessionID: SessionID
+      messageID: MessageID
+      label: string | undefined
+    }) {
+      const msg = yield* Effect.try({
+        try: () => MessageV2.get({ sessionID: input.sessionID, messageID: input.messageID }),
+        catch: () => new NotFoundError({ message: `Message ${input.messageID} not found in session ${input.sessionID}` }),
+      })
+      const updated = { ...msg.info, label: input.label }
+      yield* sync.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: updated })
+      return updated
+    })
+
+    const removeSubtree = Effect.fn("Session.removeSubtree")(function* (input: {
+      sessionID: SessionID
+      messageID: MessageID
+    }) {
+      // Validate root message exists in the session
+      yield* Effect.try({
+        try: () => MessageV2.get({ sessionID: input.sessionID, messageID: input.messageID }),
+        catch: () => new NotFoundError({ message: `Message ${input.messageID} not found in session ${input.sessionID}` }),
+      })
+
+      const messages = [...MessageV2.stream(input.sessionID)]
+
+      const childrenMap = new Map<MessageID, MessageID[]>()
+      for (const msg of messages) {
+        if (!msg.info.treeParentID) continue
+        if (!childrenMap.has(msg.info.treeParentID)) childrenMap.set(msg.info.treeParentID, [])
+        childrenMap.get(msg.info.treeParentID)!.push(msg.info.id)
+      }
+
+      const toDelete: MessageID[] = []
+      const queue = [input.messageID]
+      while (queue.length > 0) {
+        const id = queue.pop()!
+        toDelete.push(id)
+        for (const childID of childrenMap.get(id) ?? []) {
+          queue.push(childID)
+        }
+      }
+
+      yield* sync.run(MessageV2.Event.SubtreeRemoved, {
+        sessionID: input.sessionID,
+        messageIDs: toDelete,
+      })
+      return toDelete
+    })
+
     const removePart = Effect.fn("Session.removePart")(function* (input: {
       sessionID: SessionID
       messageID: MessageID
@@ -932,6 +988,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       remove,
       updateMessage,
       removeMessage,
+      setLabel,
+      removeSubtree,
       removePart,
       updatePart,
       getPart,

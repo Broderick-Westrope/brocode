@@ -36,6 +36,7 @@ import {
   PermissionResponsePayload,
   PromptPayload,
   RevertPayload,
+  SetLabelPayload,
   ShellPayload,
   SummarizePayload,
   UpdatePayload,
@@ -366,6 +367,13 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return true
     })
 
+    const deleteSubtree = Effect.fn("SessionHttpApi.deleteSubtree")(function* (ctx: {
+      params: { sessionID: SessionID; messageID: MessageID }
+    }) {
+      yield* runState.assertNotBusy(ctx.params.sessionID)
+      return yield* SessionError.mapStorageNotFound(session.removeSubtree(ctx.params))
+    })
+
     const deletePart = Effect.fn("SessionHttpApi.deletePart")(function* (ctx: {
       params: { sessionID: SessionID; messageID: MessageID; partID: PartID }
     }) {
@@ -388,6 +396,20 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         )
       }
       return yield* session.updatePart(payload)
+    })
+
+    const setLabel = Effect.fn("SessionHttpApi.setLabel")(function* (ctx: {
+      params: { sessionID: SessionID; messageID: MessageID }
+      payload: typeof SetLabelPayload.Type
+    }) {
+      const updated = yield* SessionError.mapStorageNotFound(
+        session.setLabel({
+          sessionID: ctx.params.sessionID,
+          messageID: ctx.params.messageID,
+          label: ctx.payload.label,
+        }),
+      )
+      return { id: updated.id }
     })
 
     return handlers
@@ -419,7 +441,9 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("unrevert", unrevert)
       .handle("permissionRespond", permissionRespond)
       .handle("deleteMessage", deleteMessage)
+      .handle("deleteSubtree", deleteSubtree)
       .handle("deletePart", deletePart)
       .handle("updatePart", updatePart)
+      .handle("setLabel", setLabel)
   }),
 )

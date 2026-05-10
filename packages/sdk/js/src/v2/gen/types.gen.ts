@@ -42,6 +42,7 @@ export type Event =
   | EventPtyUpdated
   | EventPtyExited
   | EventPtyDeleted
+  | EventMessageSubtreeRemoved
   | EventMessageUpdated
   | EventMessageRemoved
   | EventMessagePartUpdated
@@ -381,6 +382,7 @@ export type UserMessage = {
   id: string
   sessionID: string
   treeParentID?: string
+  label?: string
   role: "user"
   time: {
     created: number
@@ -407,6 +409,7 @@ export type AssistantMessage = {
   id: string
   sessionID: string
   treeParentID?: string
+  label?: string
   role: "assistant"
   time: {
     created: number
@@ -821,6 +824,7 @@ export type GlobalEvent = {
     | EventPtyUpdated
     | EventPtyExited
     | EventPtyDeleted
+    | EventMessageSubtreeRemoved
     | EventMessageUpdated
     | EventMessageRemoved
     | EventMessagePartUpdated
@@ -856,6 +860,7 @@ export type GlobalEvent = {
     | EventSessionNextCompactionEnded
     | EventServerConnected
     | EventGlobalDisposed
+    | SyncEventMessageSubtreeRemoved
     | SyncEventMessageUpdated
     | SyncEventMessageRemoved
     | SyncEventMessagePartUpdated
@@ -1759,6 +1764,18 @@ export type Workspace = {
   projectID: string
 }
 
+export type SyncEventMessageSubtreeRemoved = {
+  type: "sync"
+  name: "message.subtree_removed.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: {
+    sessionID: string
+    messageIDs: Array<string>
+  }
+}
+
 export type SyncEventMessageUpdated = {
   type: "sync"
   name: "message.updated.1"
@@ -2559,6 +2576,15 @@ export type EventPtyDeleted = {
   type: "pty.deleted"
   properties: {
     id: string
+  }
+}
+
+export type EventMessageSubtreeRemoved = {
+  id: string
+  type: "message.subtree_removed"
+  properties: {
+    sessionID: string
+    messageIDs: Array<string>
   }
 }
 
@@ -5969,7 +5995,7 @@ export type SessionRevertErrors = {
    */
   400: BadRequestError
   /**
-   * Not found
+   * NotFoundError
    */
   404: NotFoundError
 }
@@ -6056,6 +6082,41 @@ export type PermissionRespondResponses = {
 
 export type PermissionRespondResponse = PermissionRespondResponses[keyof PermissionRespondResponses]
 
+export type SessionDeleteSubtreeData = {
+  body?: never
+  path: {
+    sessionID: string
+    messageID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/subtree/{messageID}"
+}
+
+export type SessionDeleteSubtreeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionDeleteSubtreeError = SessionDeleteSubtreeErrors[keyof SessionDeleteSubtreeErrors]
+
+export type SessionDeleteSubtreeResponses = {
+  /**
+   * Successfully deleted subtree
+   */
+  200: Array<string>
+}
+
+export type SessionDeleteSubtreeResponse = SessionDeleteSubtreeResponses[keyof SessionDeleteSubtreeResponses]
+
 export type PartDeleteData = {
   body?: never
   path: {
@@ -6127,6 +6188,45 @@ export type PartUpdateResponses = {
 }
 
 export type PartUpdateResponse = PartUpdateResponses[keyof PartUpdateResponses]
+
+export type SessionSetLabelData = {
+  body?: {
+    label?: string
+  }
+  path: {
+    sessionID: string
+    messageID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/message/{messageID}/label"
+}
+
+export type SessionSetLabelErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionSetLabelError = SessionSetLabelErrors[keyof SessionSetLabelErrors]
+
+export type SessionSetLabelResponses = {
+  /**
+   * Successfully set label
+   */
+  200: {
+    id: string
+  }
+}
+
+export type SessionSetLabelResponse = SessionSetLabelResponses[keyof SessionSetLabelResponses]
 
 export type SyncStartData = {
   body?: never
