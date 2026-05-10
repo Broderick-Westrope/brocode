@@ -1333,7 +1333,7 @@ export function* streamBranch(sessionID: SessionID, leafID?: MessageID): Generat
   if (ids.length === 0) return
 
   const rows = Database.use((db) =>
-    db.select().from(MessageTable).where(inArray(MessageTable.id, ids)).all(),
+    db.select().from(MessageTable).where(and(eq(MessageTable.session_id, sessionID), inArray(MessageTable.id, ids))).all(),
   )
 
   const indexMap = new Map(ids.map((id, i) => [id as string, i]))
