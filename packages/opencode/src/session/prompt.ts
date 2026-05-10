@@ -1476,11 +1476,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 part.state.status !== "error",
             ) ?? false
 
+          // Use positional comparison: after compaction reordering the
+          // compaction user (new ULID) can appear before old tail assistants
+          // (old ULIDs), so lexicographic ID comparison is unreliable.
+          const lastUserIdx = msgs.findLastIndex((m) => m.info.role === "user")
+          const lastAssistantIdx = msgs.findLastIndex((m) => m.info.role === "assistant")
+
           if (
             lastAssistant?.finish &&
-            !["tool-calls"].includes(lastAssistant.finish) &&
             !hasToolCalls &&
-            lastUser.id < lastAssistant.id
+            lastUserIdx < lastAssistantIdx
           ) {
             yield* slog.info("exiting loop")
             break
