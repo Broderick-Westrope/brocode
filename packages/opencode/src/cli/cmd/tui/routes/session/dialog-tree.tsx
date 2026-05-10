@@ -1,4 +1,4 @@
-import { createMemo, createSignal, onMount, Show } from "solid-js"
+import { createMemo, createSignal, onMount } from "solid-js"
 import { useSync } from "@tui/context/sync"
 import { DialogSelect, type DialogSelectOption, type DialogSelectRef } from "@tui/ui/dialog-select"
 import type { TextPart, ToolPart } from "@opencode-ai/sdk/v2"
@@ -19,8 +19,6 @@ export function DialogTree(props: {
   const sync = useSync()
   const dialog = useDialog()
   const [collapsed, setCollapsed] = createSignal(new Set<string>())
-  const [confirmDelete, setConfirmDelete] = createSignal<{ msgID: string; count: number } | null>(null)
-  const [editingLabel, setEditingLabel] = createSignal<{ msgID: string; currentLabel: string } | null>(null)
   let selectRef: DialogSelectRef<string> | undefined
 
   onMount(() => {
@@ -28,26 +26,7 @@ export function DialogTree(props: {
   })
 
   useKeyboard((evt) => {
-    // Handle delete confirmation y/n
-    if (confirmDelete()) {
-      if (evt.name === "y") {
-        evt.preventDefault()
-        evt.stopPropagation()
-        const state = confirmDelete()!
-        setConfirmDelete(null)
-        props.onDelete?.(state.msgID)
-        return
-      }
-      if (evt.name === "n" || evt.name === "escape") {
-        evt.preventDefault()
-        evt.stopPropagation()
-        setConfirmDelete(null)
-        return
-      }
-      return
-    }
-    // Don't process character keybinds while editing label or filtering
-    if (editingLabel()) return
+    // Don't process character keybinds while filtering
     if (selectRef?.filterActive) return
 
     // Character keybinds (d, l) are handled here instead of via DialogSelect's
@@ -62,7 +41,17 @@ export function DialogTree(props: {
       const data = computed()
       const msgID = data.optionToMsg.get(sel.value)
       if (!msgID) return
-      setEditingLabel({ msgID, currentLabel: data.msgMap.get(msgID)?.label ?? "" })
+      const currentLabel = data.msgMap.get(msgID)?.label ?? ""
+      // Use dialog.replace to show the label prompt — <Show> switching
+      // inside an existing dialog doesn't trigger visual updates in opentui.
+      DialogPrompt.show(dialog, "Set Message Label", {
+        value: currentLabel,
+        placeholder: "Enter label (empty to clear)",
+      }).then((value) => {
+        if (value !== null) {
+          props.onLabel!(msgID, value.trim() || undefined)
+        }
+      })
       return
     }
 
@@ -81,7 +70,17 @@ export function DialogTree(props: {
         count++
         queue.push(...(data.childrenMap.get(child.id) ?? []))
       }
-      setConfirmDelete({ msgID, count })
+      const prompt = count > 0
+        ? `Delete this message and ${count} descendants?`
+        : "Delete this message?"
+      DialogPrompt.show(dialog, prompt, {
+        value: "y",
+        placeholder: "y to confirm, anything else to cancel",
+      }).then((value) => {
+        if (value === "y") {
+          props.onDelete!(msgID)
+        }
+      })
       return
     }
   })
@@ -259,102 +258,69 @@ export function DialogTree(props: {
   const options = createMemo(() => computed().result)
 
   return (
-    <Show
-      when={editingLabel()}
-      fallback={
-        <Show
-          when={confirmDelete()}
-          fallback={
-            <DialogSelect
-              title="Session Tree"
-              options={options()}
-              filterMode="on-demand"
-              placeholder="/ to filter · Enter to select · Esc to cancel"
-              ref={(r) => { selectRef = r }}
-              keybind={[
-                {
-                  keybind: Keybind.parse("left")[0],
-                  title: "Collapse",
-                  onTrigger: (option) => {
-                    const data = computed()
-                    const msgID = data.optionToMsg.get(option.value)
-                    if (!msgID) return
-                    const hasChildren = (data.childrenMap.get(msgID) ?? []).some((c) => {
-                      const p = c.treeParentID ? data.msgMap.get(c.treeParentID) : undefined
-                      return !(c.role === "assistant" && p?.role === "assistant")
-                    })
-                    if (!collapsed().has(msgID) && hasChildren) {
-                      setCollapsed((prev) => { const next = new Set(prev); next.add(msgID); return next })
-                      return
-                    }
-                    // Already collapsed or leaf → navigate to parent.
-                    // Walk up treeParentID chain to find the nearest ancestor
-                    // that has an option in the tree (skips continuation assistants).
-                    let parentID = data.msgMap.get(msgID)?.treeParentID
-                    while (parentID) {
-                      const parentOptIdx = options().findIndex((o) => data.optionToMsg.get(o.value) === parentID)
-                      if (parentOptIdx >= 0 && selectRef) {
-                        selectRef.moveTo(parentOptIdx)
-                        return
-                      }
-                      parentID = data.msgMap.get(parentID)?.treeParentID
-                    }
-                  },
-                },
-                {
-                  keybind: Keybind.parse("right")[0],
-                  title: "Expand",
-                  onTrigger: (option) => {
-                    const msgID = computed().optionToMsg.get(option.value)
-                    if (!msgID) return
-                    if (collapsed().has(msgID)) {
-                      setCollapsed((prev) => { const next = new Set(prev); next.delete(msgID); return next })
-                    }
-                  },
-                },
-                // l and d are handled in DialogTree's useKeyboard because focused
-                // inputs consume character keys before DialogSelect's keybind matching.
-                // These entries exist for footer hint display only.
-                ...(props.onLabel ? [{
-                  keybind: Keybind.parse("l")[0],
-                  title: "Label",
-                  side: "right" as const,
-                  onTrigger: () => {},
-                }] : []),
-                ...(props.onDelete ? [{
-                  keybind: Keybind.parse("d")[0],
-                  title: "Delete",
-                  side: "right" as const,
-                  onTrigger: () => {},
-                }] : []),
-              ]}
-            />
-          }
-        >
-          {(confirm) => (
-            <box paddingLeft={4} paddingRight={4}>
-              <text>{confirm().count > 0 ? `Delete this message and ${confirm().count} descendants? (y/n)` : "Delete this message? (y/n)"}</text>
-            </box>
-          )}
-        </Show>
-      }
-    >
-      {(editing) => (
-        <DialogPrompt
-          title="Set Message Label"
-          value={editing().currentLabel}
-          placeholder="Enter label (empty to clear)"
-          onConfirm={(value) => {
-            props.onLabel?.(editing().msgID, value.trim() || undefined)
-            setEditingLabel(null)
-            dialog.setSize("large")
-          }}
-          onCancel={() => {
-            setEditingLabel(null)
-            dialog.setSize("large")
-          }}
-        />
-      )}
-    </Show>
+    <DialogSelect
+      title="Session Tree"
+      options={options()}
+      filterMode="on-demand"
+      placeholder="/ to filter · Enter to select · Esc to cancel"
+      ref={(r) => { selectRef = r }}
+      keybind={[
+        {
+          keybind: Keybind.parse("left")[0],
+          title: "Collapse",
+          onTrigger: (option) => {
+            const data = computed()
+            const msgID = data.optionToMsg.get(option.value)
+            if (!msgID) return
+            const hasChildren = (data.childrenMap.get(msgID) ?? []).some((c) => {
+              const p = c.treeParentID ? data.msgMap.get(c.treeParentID) : undefined
+              return !(c.role === "assistant" && p?.role === "assistant")
+            })
+            if (!collapsed().has(msgID) && hasChildren) {
+              setCollapsed((prev) => { const next = new Set(prev); next.add(msgID); return next })
+              return
+            }
+            // Already collapsed or leaf → navigate to parent.
+            // Walk up treeParentID chain to find the nearest ancestor
+            // that has an option in the tree (skips continuation assistants).
+            let parentID = data.msgMap.get(msgID)?.treeParentID
+            while (parentID) {
+              const parentOptIdx = options().findIndex((o) => data.optionToMsg.get(o.value) === parentID)
+              if (parentOptIdx >= 0 && selectRef) {
+                selectRef.moveTo(parentOptIdx)
+                return
+              }
+              parentID = data.msgMap.get(parentID)?.treeParentID
+            }
+          },
+        },
+        {
+          keybind: Keybind.parse("right")[0],
+          title: "Expand",
+          onTrigger: (option) => {
+            const msgID = computed().optionToMsg.get(option.value)
+            if (!msgID) return
+            if (collapsed().has(msgID)) {
+              setCollapsed((prev) => { const next = new Set(prev); next.delete(msgID); return next })
+            }
+          },
+        },
+        // l and d are handled in DialogTree's useKeyboard because focused
+        // inputs consume character keys before DialogSelect's keybind matching.
+        // These entries exist for footer hint display only.
+        ...(props.onLabel ? [{
+          keybind: Keybind.parse("l")[0],
+          title: "Label",
+          side: "right" as const,
+          onTrigger: () => {},
+        }] : []),
+        ...(props.onDelete ? [{
+          keybind: Keybind.parse("d")[0],
+          title: "Delete",
+          side: "right" as const,
+          onTrigger: () => {},
+        }] : []),
+      ]}
+    />
   )
 }
