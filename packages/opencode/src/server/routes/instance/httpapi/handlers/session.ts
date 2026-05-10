@@ -229,7 +229,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         toAncestorID: ctx.payload.toAncestorID,
         model: ctx.payload.model,
       })
-      if (!text) return yield* new HttpApiError.BadRequest({})
+      if (!text) return yield* Effect.die(new Error("Branch summary generation failed — model returned no text"))
       return { summary: text }
     })
 
@@ -343,7 +343,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload: typeof RevertPayload.Type
     }) {
-      return yield* revertSvc.revert({ sessionID: ctx.params.sessionID, ...ctx.payload })
+      return yield* SessionError.mapStorageNotFound(revertSvc.revert({ sessionID: ctx.params.sessionID, ...ctx.payload }))
     })
 
     const unrevert = Effect.fn("SessionHttpApi.unrevert")(function* (ctx: { params: { sessionID: SessionID } }) {

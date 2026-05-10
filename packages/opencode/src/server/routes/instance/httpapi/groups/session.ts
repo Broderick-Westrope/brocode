@@ -402,7 +402,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           payload: RevertPayload,
           success: described(Session.Info, "Updated session"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.revert",

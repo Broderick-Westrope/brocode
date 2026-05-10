@@ -1,7 +1,7 @@
 import { Effect, Layer, Context, Schema } from "effect"
 import { Bus } from "../bus"
 import { Snapshot } from "../snapshot"
-import { Storage } from "@/storage/storage"
+import { Storage, NotFoundError } from "@/storage/storage"
 import { SyncEvent } from "../sync"
 import * as Log from "@opencode-ai/core/util/log"
 import { zod } from "@/util/effect-zod"
@@ -25,7 +25,7 @@ export const RevertInput = Schema.Struct({
 export type RevertInput = Schema.Schema.Type<typeof RevertInput>
 
 export interface Interface {
-  readonly revert: (input: RevertInput) => Effect.Effect<Session.Info>
+  readonly revert: (input: RevertInput) => Effect.Effect<Session.Info, InstanceType<typeof NotFoundError>>
   readonly unrevert: (input: { sessionID: SessionID }) => Effect.Effect<Session.Info>
   readonly cleanup: (session: Session.Info) => Effect.Effect<void>
 }
@@ -58,10 +58,11 @@ export const layer = Layer.effect(
         ),
       )
       if (branches.length > 0)
-        yield* Effect.die(
-          new Error(
-            "Revert is not supported on sessions with branches. Use /tree to navigate to a previous point instead.",
-          ),
+        yield* Effect.fail(
+          new NotFoundError({
+            message:
+              "Revert is not supported on sessions with branches. Use /tree to navigate to a previous point instead.",
+          }),
         )
       const all = yield* sessions.messages({ sessionID: input.sessionID })
       let lastUser: MessageV2.User | undefined

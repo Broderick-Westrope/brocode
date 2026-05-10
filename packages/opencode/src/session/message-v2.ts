@@ -1298,17 +1298,7 @@ export function getAncestorPath(sessionID: SessionID, leafID?: MessageID): Messa
     parentMap.set(row.id, row.tree_parent_id ?? null)
   }
 
-  const startID =
-    leafID ??
-    Database.use((db) =>
-      db
-        .select({ id: MessageTable.id })
-        .from(MessageTable)
-        .where(eq(MessageTable.session_id, sessionID))
-        .orderBy(desc(MessageTable.time_created))
-        .limit(1)
-        .get(),
-    )?.id
+  const startID = leafID ?? (rows[rows.length - 1]?.id as MessageID | undefined)
 
   if (!startID) return []
 
