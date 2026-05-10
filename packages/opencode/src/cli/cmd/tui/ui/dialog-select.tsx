@@ -53,6 +53,7 @@ export type DialogSelectRef<T> = {
   filter: string
   filtered: DialogSelectOption<T>[]
   filterActive: boolean
+  selected: DialogSelectOption<T> | undefined
   moveTo: (index: number) => void
 }
 
@@ -249,14 +250,6 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
       }
     }
 
-    // In on-demand mode with filter inactive, prevent all unhandled keys from
-    // reaching the focused input (which would type into it) or leaking to
-    // elements behind the dialog. Allow escape through so the dialog can close.
-    if (props.filterMode === "on-demand" && !store.filterActive && !evt.defaultPrevented) {
-      if (evt.name !== "escape" && !(evt.ctrl && evt.name === "c")) {
-        evt.preventDefault()
-      }
-    }
   })
 
   let scroll: ScrollBoxRenderable | undefined
@@ -269,6 +262,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     },
     get filterActive() {
       return store.filterActive
+    },
+    get selected() {
+      return selected()
     },
     moveTo,
   }
@@ -300,15 +296,15 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                 })
               }}
               focusedBackgroundColor={theme.backgroundPanel}
-              cursorColor={store.filterActive ? theme.primary : theme.backgroundPanel}
-              focusedTextColor={store.filterActive ? theme.textMuted : theme.backgroundPanel}
+              cursorColor={theme.primary}
+              focusedTextColor={theme.textMuted}
               ref={(r) => {
                 input = r
                 input.traits = { status: "FILTER" }
                 setTimeout(() => {
                   if (!input) return
                   if (input.isDestroyed) return
-                  input.focus()
+                  if (store.filterActive) input.focus()
                 }, 1)
               }}
               placeholder={props.filterMode === "on-demand" && !store.filterActive ? "/ to filter" : (props.placeholder ?? "Search")}

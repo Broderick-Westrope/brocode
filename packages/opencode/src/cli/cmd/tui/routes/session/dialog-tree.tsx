@@ -28,19 +28,60 @@ export function DialogTree(props: {
   })
 
   useKeyboard((evt) => {
-    if (!confirmDelete()) return
-    if (evt.name === "y") {
-      evt.preventDefault()
-      evt.stopPropagation()
-      const state = confirmDelete()!
-      setConfirmDelete(null)
-      props.onDelete?.(state.msgID)
+    // Handle delete confirmation y/n
+    if (confirmDelete()) {
+      if (evt.name === "y") {
+        evt.preventDefault()
+        evt.stopPropagation()
+        const state = confirmDelete()!
+        setConfirmDelete(null)
+        props.onDelete?.(state.msgID)
+        return
+      }
+      if (evt.name === "n" || evt.name === "escape") {
+        evt.preventDefault()
+        evt.stopPropagation()
+        setConfirmDelete(null)
+        return
+      }
       return
     }
-    if (evt.name === "n" || evt.name === "escape") {
+    // Don't process character keybinds while editing label or filtering
+    if (editingLabel()) return
+    if (selectRef?.filterActive) return
+
+    // Character keybinds (d, l) are handled here instead of via DialogSelect's
+    // keybind prop because focused inputs consume character keys before the
+    // keybind matching in DialogSelect's useKeyboard fires.
+    const sel = selectRef?.selected
+    if (!sel) return
+
+    if (evt.name === "l" && props.onLabel) {
       evt.preventDefault()
       evt.stopPropagation()
-      setConfirmDelete(null)
+      const data = computed()
+      const msgID = data.optionToMsg.get(sel.value)
+      if (!msgID) return
+      setEditingLabel({ msgID, currentLabel: data.msgMap.get(msgID)?.label ?? "" })
+      return
+    }
+
+    if (evt.name === "d" && props.onDelete) {
+      evt.preventDefault()
+      evt.stopPropagation()
+      const data = computed()
+      const msgID = data.optionToMsg.get(sel.value)
+      if (!msgID) return
+      if (data.ancestorSet.has(msgID)) return
+      let count = 0
+      const queue = [...(data.childrenMap.get(msgID) ?? [])]
+      while (queue.length > 0) {
+        const child = queue.pop()!
+        if (data.ancestorSet.has(child.id)) return
+        count++
+        queue.push(...(data.childrenMap.get(child.id) ?? []))
+      }
+      setConfirmDelete({ msgID, count })
       return
     }
   })
@@ -271,41 +312,21 @@ export function DialogTree(props: {
                     }
                   },
                 },
-                {
+                // l and d are handled in DialogTree's useKeyboard because focused
+                // inputs consume character keys before DialogSelect's keybind matching.
+                // These entries exist for footer hint display only.
+                ...(props.onLabel ? [{
                   keybind: Keybind.parse("l")[0],
                   title: "Label",
-                  side: "right",
-                  disabled: !props.onLabel,
-                  onTrigger: (option) => {
-                    const data = computed()
-                    const msgID = data.optionToMsg.get(option.value)
-                    if (!msgID) return
-                    setEditingLabel({ msgID, currentLabel: data.msgMap.get(msgID)?.label ?? "" })
-                  },
-                },
-                {
+                  side: "right" as const,
+                  onTrigger: () => {},
+                }] : []),
+                ...(props.onDelete ? [{
                   keybind: Keybind.parse("d")[0],
                   title: "Delete",
-                  side: "right",
-                  disabled: !props.onDelete,
-                  onTrigger: (option) => {
-                    const data = computed()
-                    const msgID = data.optionToMsg.get(option.value)
-                    if (!msgID) return
-                    // Refuse if the subtree overlaps the current branch ancestors
-                    if (data.ancestorSet.has(msgID)) return
-                    // Single traversal: check ancestor guard + count descendants
-                    let count = 0
-                    const queue = [...(data.childrenMap.get(msgID) ?? [])]
-                    while (queue.length > 0) {
-                      const child = queue.pop()!
-                      if (data.ancestorSet.has(child.id)) return
-                      count++
-                      queue.push(...(data.childrenMap.get(child.id) ?? []))
-                    }
-                    setConfirmDelete({ msgID, count })
-                  },
-                },
+                  side: "right" as const,
+                  onTrigger: () => {},
+                }] : []),
               ]}
             />
           }
