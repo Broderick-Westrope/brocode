@@ -761,7 +761,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       if (input.limit) {
         return MessageV2.page({ sessionID: input.sessionID, limit: input.limit }).items
       }
-      return Array.from(MessageV2.stream(input.sessionID)).reverse()
+      return [...MessageV2.streamBranch(input.sessionID)]
     })
 
     const removeMessage = Effect.fn("Session.removeMessage")(function* (input: {
