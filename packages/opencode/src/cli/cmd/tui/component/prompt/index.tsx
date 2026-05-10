@@ -1251,7 +1251,7 @@ export function Prompt(props: PromptProps) {
               }}
               keyBindings={textareaKeybindings()}
               onKeyDown={async (e) => {
-                if (props.disabled) {
+                if (props.disabled || dialog.stack.length > 0) {
                   e.preventDefault()
                   return
                 }
