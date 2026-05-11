@@ -32,6 +32,23 @@ Reads credentials from macOS Keychain or `~/.claude/.credentials.json`, refreshe
 
 The system prompt uses a compact markdown list for skills (name + description only) instead of full XML with file paths. Saves ~3-5K tokens for large skill sets. Skills without descriptions are excluded.
 
+### Cross-database session search
+
+`brocode session search` queries sessions across all local databases (`~/.local/share/opencode/opencode*.db`), solving the problem of finding sessions when you don't remember which directory you launched from.
+
+Searches by title (default), message content (`-m`), directory (`-d`), or date range (`--since`/`--until`). Opens all DBs read-only via `bun:sqlite` — no instance context needed.
+
+```bash
+brocode session search "query"          # search titles
+brocode session search -m "query"       # search message content (slower)
+brocode session search -d svc-core      # filter by directory
+brocode session search --since 3d       # last 3 days
+brocode session search --id ses_abc123  # full session detail
+brocode session search --dbs            # list all databases
+brocode session search --dirs           # directories ranked by session count
+brocode session search --format json    # JSON output
+```
+
 ### Branding
 
 - Logo changed from "open" to "bro" in the TUI splash
