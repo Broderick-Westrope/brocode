@@ -38,21 +38,29 @@ let pending: Promise<Creds | undefined> | undefined
 
 export async function read(): Promise<Creds | undefined> {
   if (process.platform === "darwin") {
-    try {
-      const proc = Bun.spawn(["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"], {
-        timeout: 2000,
-      })
-      const out = await new Response(proc.stdout).text()
-      const code = await proc.exited
+    // Claude Code ≥2.1.138 stores credentials under the OS username account.
+    // Older versions used "claude-code-user". Try both so either format works.
+    const accounts = [process.env.USER ?? os.userInfo().username, "claude-code-user"]
+    for (const acct of accounts) {
+      try {
+        const proc = Bun.spawn(
+          ["security", "find-generic-password", "-a", acct, "-s", "Claude Code-credentials", "-w"],
+          { timeout: 2000, stderr: "pipe" },
+        )
+        const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+        const code = await proc.exited
 
-      if (code === 0) {
-        const result = parse(JSON.parse(out.trim()))
-        if (result) return result
+        if (code === 0) {
+          const result = parse(JSON.parse(out.trim()))
+          if (result) return result
+        }
+        // exit 44 = not found — try next account
+        if (code !== 0) log.debug("keychain lookup returned non-zero", { account: acct, code, stderr: err.trim() })
+      } catch (e) {
+        log.debug("keychain read failed", { account: acct, error: e })
       }
-      // exit 44 = not found, 36 = locked, null = timeout — all fall through to file
-    } catch (e) {
-      log.debug("keychain read failed", { error: e })
     }
+    // All keychain attempts failed — fall through to file
   }
 
   const file = Bun.file(CREDS_FILE())

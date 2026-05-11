@@ -14,7 +14,7 @@ import { Schema, SchemaGetter, Struct } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
-import { WorkspaceRoutingMiddleware } from "../middleware/workspace-routing"
+import { WorkspaceRoutingMiddleware, WorkspaceRoutingQueryFields } from "../middleware/workspace-routing"
 import { ApiNotFoundError } from "../errors"
 import { described } from "./metadata"
 
@@ -26,7 +26,7 @@ const QueryBoolean = Schema.Literals(["true", "false"]).pipe(
   }),
 )
 export const ListQuery = Schema.Struct({
-  directory: Schema.optional(Schema.String),
+  ...WorkspaceRoutingQueryFields,
   scope: Schema.optional(Schema.Literals(["project"])),
   path: Schema.optional(Schema.String),
   roots: Schema.optional(QueryBoolean),
@@ -34,8 +34,12 @@ export const ListQuery = Schema.Struct({
   search: Schema.optional(Schema.String),
   limit: Schema.optional(Schema.NumberFromString),
 })
-export const DiffQuery = Schema.Struct(Struct.omit(SessionSummary.DiffInput.fields, ["sessionID"]))
+export const DiffQuery = Schema.Struct({
+  ...WorkspaceRoutingQueryFields,
+  ...Struct.omit(SessionSummary.DiffInput.fields, ["sessionID"]),
+})
 export const MessagesQuery = Schema.Struct({
+  ...WorkspaceRoutingQueryFields,
   limit: Schema.optional(Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
   before: Schema.optional(Schema.String),
 })
@@ -324,7 +328,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.post("share", SessionPaths.share, {
           params: { sessionID: SessionID },
           success: described(Session.Info, "Successfully shared session"),
-          error: [HttpApiError.BadRequest, ApiNotFoundError],
+          error: [HttpApiError.InternalServerError, ApiNotFoundError],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.share",
@@ -335,7 +339,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.delete("unshare", SessionPaths.share, {
           params: { sessionID: SessionID },
           success: described(Session.Info, "Successfully unshared session"),
-          error: [HttpApiError.BadRequest, ApiNotFoundError],
+          error: [HttpApiError.InternalServerError, ApiNotFoundError],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.unshare",
