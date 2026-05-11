@@ -272,7 +272,7 @@ export const McpAuthCommand = effectCmd({
     yield* MCP.Service.use((mcp) => mcp.authenticate(serverName)).pipe(
       Effect.tap((status) =>
         Effect.sync(() => {
-          if (status.status === "connected") {
+          if (status.status === "connected" || status.status === "lazy") {
             spinner.stop("Authentication successful!")
           } else if (status.status === "needs_client_registration") {
             spinner.stop("Authentication failed", 1)
