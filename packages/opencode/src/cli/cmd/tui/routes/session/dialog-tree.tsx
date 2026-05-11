@@ -3,7 +3,6 @@ import { useSync } from "@tui/context/sync"
 import { DialogSelect, type DialogSelectOption, type DialogSelectRef } from "@tui/ui/dialog-select"
 import type { TextPart, ToolPart } from "@opencode-ai/sdk/v2"
 import { Locale } from "@/util/locale"
-import { Keybind } from "@/util/keybind"
 import { useDialog } from "../../ui/dialog"
 import type { PromptInfo } from "../../component/prompt/history"
 import { useKeyboard } from "@opentui/solid"
@@ -54,14 +53,48 @@ export function DialogTree(props: {
   }
 
   useKeyboard((evt) => {
-    // Don't process character keybinds while filtering
+    // Don't process keybinds while filtering
     if (selectRef?.filterActive) return
 
-    // Character keybinds (d, l) are handled here instead of via DialogSelect's
-    // keybind prop because focused inputs consume character keys before the
-    // keybind matching in DialogSelect's useKeyboard fires.
     const sel = selectRef?.selected
     if (!sel) return
+
+    if (evt.name === "left") {
+      evt.preventDefault()
+      evt.stopPropagation()
+      const data = computed()
+      const msgID = data.optionToMsg.get(sel.value)
+      if (!msgID) return
+      const hasChildren = (data.childrenMap.get(msgID) ?? []).some((c) => {
+        const p = c.treeParentID ? data.msgMap.get(c.treeParentID) : undefined
+        return !(c.role === "assistant" && p?.role === "assistant")
+      })
+      if (!collapsed().has(msgID) && hasChildren) {
+        setCollapsed((prev) => { const next = new Set(prev); next.add(msgID); return next })
+        return
+      }
+      let parentID = data.msgMap.get(msgID)?.treeParentID
+      while (parentID) {
+        const parentOptIdx = options().findIndex((o) => data.optionToMsg.get(o.value) === parentID)
+        if (parentOptIdx >= 0 && selectRef) {
+          selectRef.moveTo(parentOptIdx)
+          return
+        }
+        parentID = data.msgMap.get(parentID)?.treeParentID
+      }
+      return
+    }
+
+    if (evt.name === "right") {
+      evt.preventDefault()
+      evt.stopPropagation()
+      const msgID = computed().optionToMsg.get(sel.value)
+      if (!msgID) return
+      if (collapsed().has(msgID)) {
+        setCollapsed((prev) => { const next = new Set(prev); next.delete(msgID); return next })
+      }
+      return
+    }
 
     if (evt.name === "l" && props.onLabel) {
       evt.preventDefault()
@@ -268,79 +301,14 @@ export function DialogTree(props: {
 
   const options = createMemo(() => computed().result)
 
-  // Determine if delete is valid for the currently selected node
-  const deleteAllowed = createMemo(() => {
-    const sel = selectedValue()
-    if (!sel) return false
-    const data = computed()
-    const msgID = data.optionToMsg.get(sel)
-    if (!msgID) return false
-    return canDelete(msgID)
-  })
-
-  // Build keybind array reactively so footer hints update with selection
-  const keybinds = createMemo(() => [
-    {
-      keybind: Keybind.parse("left")[0],
-      title: "Collapse",
-      onTrigger: (option: DialogSelectOption<string>) => {
-        const data = computed()
-        const msgID = data.optionToMsg.get(option.value)
-        if (!msgID) return
-        const hasChildren = (data.childrenMap.get(msgID) ?? []).some((c) => {
-          const p = c.treeParentID ? data.msgMap.get(c.treeParentID) : undefined
-          return !(c.role === "assistant" && p?.role === "assistant")
-        })
-        if (!collapsed().has(msgID) && hasChildren) {
-          setCollapsed((prev) => { const next = new Set(prev); next.add(msgID); return next })
-          return
-        }
-        let parentID = data.msgMap.get(msgID)?.treeParentID
-        while (parentID) {
-          const parentOptIdx = options().findIndex((o) => data.optionToMsg.get(o.value) === parentID)
-          if (parentOptIdx >= 0 && selectRef) {
-            selectRef.moveTo(parentOptIdx)
-            return
-          }
-          parentID = data.msgMap.get(parentID)?.treeParentID
-        }
-      },
-    },
-    {
-      keybind: Keybind.parse("right")[0],
-      title: "Expand",
-      onTrigger: (option: DialogSelectOption<string>) => {
-        const msgID = computed().optionToMsg.get(option.value)
-        if (!msgID) return
-        if (collapsed().has(msgID)) {
-          setCollapsed((prev) => { const next = new Set(prev); next.delete(msgID); return next })
-        }
-      },
-    },
-    // Footer hint display only — actual handlers are in useKeyboard above
-    ...(props.onLabel ? [{
-      keybind: Keybind.parse("l")[0],
-      title: "Label",
-      side: "right" as const,
-      onTrigger: () => {},
-    }] : []),
-    ...(props.onDelete && deleteAllowed() ? [{
-      keybind: Keybind.parse("d")[0],
-      title: "Delete",
-      side: "right" as const,
-      onTrigger: () => {},
-    }] : []),
-  ])
-
   return (
     <DialogSelect
       title="Session Tree"
       options={options()}
       filterMode="on-demand"
-      placeholder="/ to filter · Enter to select · Esc to cancel"
+      placeholder="←/→ collapse/expand · l label · d delete · / filter"
       ref={(r) => { selectRef = r }}
       onMove={(option) => setSelectedValue(option.value)}
-      keybind={keybinds()}
     />
   )
 }
