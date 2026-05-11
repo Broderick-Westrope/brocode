@@ -11,7 +11,7 @@
     "test:ci": "mkdir -p .artifacts/unit && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit.xml",
     "test:httpapi": "bun run script/httpapi-exercise.ts --mode coverage --fail-on-missing --fail-on-skip && bun run script/httpapi-exercise.ts --mode auth --fail-on-missing --fail-on-skip && bun run script/httpapi-exercise.ts --mode effect --fail-on-missing --fail-on-skip",
     "build": "bun run script/build.ts",
-    "install-local": "bun run build --single --skip-install --skip-embed-web-ui && cp dist/opencode-$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/aarch64/arm64/')/bin/brocode ~/.bun/bin/brocode && codesign --force --sign - ~/.bun/bin/brocode",
+    "install-local": "OPENCODE_CHANNEL=latest bun run build --single --skip-install --skip-embed-web-ui && cp dist/opencode-$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/aarch64/arm64/')/bin/brocode ~/.bun/bin/brocode && codesign --force --sign - ~/.bun/bin/brocode",
     "fix-node-pty": "bun run script/fix-node-pty.ts",
     "dev": "bun run --conditions=browser ./src/index.ts",
     "dev:temporary": "bun run --conditions=browser ./src/temporary.ts",
