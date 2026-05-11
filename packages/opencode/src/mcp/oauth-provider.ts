@@ -171,22 +171,16 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   async invalidateCredentials(type: "all" | "client" | "tokens"): Promise<void> {
     log.info("invalidating credentials", { mcpName: this.mcpName, type })
-    const entry = await Effect.runPromise(this.auth.get(this.mcpName))
-    if (!entry) {
-      return
-    }
 
     switch (type) {
       case "all":
         await Effect.runPromise(this.auth.remove(this.mcpName))
         break
       case "client":
-        delete entry.clientInfo
-        await Effect.runPromise(this.auth.set(this.mcpName, entry))
+        await Effect.runPromise(this.auth.clearClientInfo(this.mcpName))
         break
       case "tokens":
-        delete entry.tokens
-        await Effect.runPromise(this.auth.set(this.mcpName, entry))
+        await Effect.runPromise(this.auth.clearTokens(this.mcpName))
         break
     }
   }

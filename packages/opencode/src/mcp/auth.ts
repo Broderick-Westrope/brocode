@@ -1,7 +1,7 @@
 import path from "path"
 import z from "zod"
 import { Global } from "@opencode-ai/core/global"
-import { Effect, Layer, Context } from "effect"
+import { Effect, Layer, Context, Semaphore } from "effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 
 export const Tokens = z.object({
@@ -41,6 +41,8 @@ export interface Interface {
   readonly updateClientInfo: (mcpName: string, clientInfo: ClientInfo, serverUrl?: string) => Effect.Effect<void>
   readonly updateCodeVerifier: (mcpName: string, codeVerifier: string) => Effect.Effect<void>
   readonly clearCodeVerifier: (mcpName: string) => Effect.Effect<void>
+  readonly clearTokens: (mcpName: string) => Effect.Effect<void>
+  readonly clearClientInfo: (mcpName: string) => Effect.Effect<void>
   readonly updateOAuthState: (mcpName: string, oauthState: string) => Effect.Effect<void>
   readonly getOAuthState: (mcpName: string) => Effect.Effect<string | undefined>
   readonly clearOAuthState: (mcpName: string) => Effect.Effect<void>
@@ -53,6 +55,11 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
+
+    // Serialize all write operations to prevent concurrent read-modify-write
+    // races on the shared mcp-auth.json file. Without this, concurrent MCP
+    // connections during init can overwrite each other's token updates.
+    const writeLock = Semaphore.makeUnsafe(1)
 
     const all = Effect.fn("McpAuth.all")(function* () {
       return yield* fs.readJson(filepath).pipe(
@@ -75,31 +82,50 @@ export const layer = Layer.effect(
     })
 
     const set = Effect.fn("McpAuth.set")(function* (mcpName: string, entry: Entry, serverUrl?: string) {
-      const data = yield* all()
-      if (serverUrl) entry.serverUrl = serverUrl
-      yield* fs.writeJson(filepath, { ...data, [mcpName]: entry }, 0o600).pipe(Effect.orDie)
+      yield* writeLock.withPermits(1)(
+        Effect.gen(function* () {
+          const data = yield* all()
+          if (serverUrl) entry.serverUrl = serverUrl
+          yield* fs.writeJson(filepath, { ...data, [mcpName]: entry }, 0o600).pipe(Effect.orDie)
+        }),
+      )
     })
 
     const remove = Effect.fn("McpAuth.remove")(function* (mcpName: string) {
-      const data = yield* all()
-      delete data[mcpName]
-      yield* fs.writeJson(filepath, data, 0o600).pipe(Effect.orDie)
+      yield* writeLock.withPermits(1)(
+        Effect.gen(function* () {
+          const data = yield* all()
+          delete data[mcpName]
+          yield* fs.writeJson(filepath, data, 0o600).pipe(Effect.orDie)
+        }),
+      )
     })
 
     const updateField = <K extends keyof Entry>(field: K, spanName: string) =>
       Effect.fn(`McpAuth.${spanName}`)(function* (mcpName: string, value: NonNullable<Entry[K]>, serverUrl?: string) {
-        const entry = (yield* get(mcpName)) ?? {}
-        entry[field] = value
-        yield* set(mcpName, entry, serverUrl)
+        yield* writeLock.withPermits(1)(
+          Effect.gen(function* () {
+            const data = yield* all()
+            const entry = data[mcpName] ?? {}
+            entry[field] = value
+            if (serverUrl) entry.serverUrl = serverUrl
+            yield* fs.writeJson(filepath, { ...data, [mcpName]: entry }, 0o600).pipe(Effect.orDie)
+          }),
+        )
       })
 
     const clearField = <K extends keyof Entry>(field: K, spanName: string) =>
       Effect.fn(`McpAuth.${spanName}`)(function* (mcpName: string) {
-        const entry = yield* get(mcpName)
-        if (entry) {
-          delete entry[field]
-          yield* set(mcpName, entry)
-        }
+        yield* writeLock.withPermits(1)(
+          Effect.gen(function* () {
+            const data = yield* all()
+            const entry = data[mcpName]
+            if (entry) {
+              delete entry[field]
+              yield* fs.writeJson(filepath, { ...data, [mcpName]: entry }, 0o600).pipe(Effect.orDie)
+            }
+          }),
+        )
       })
 
     const updateTokens = updateField("tokens", "updateTokens")
@@ -107,6 +133,8 @@ export const layer = Layer.effect(
     const updateCodeVerifier = updateField("codeVerifier", "updateCodeVerifier")
     const updateOAuthState = updateField("oauthState", "updateOAuthState")
     const clearCodeVerifier = clearField("codeVerifier", "clearCodeVerifier")
+    const clearTokens = clearField("tokens", "clearTokens")
+    const clearClientInfo = clearField("clientInfo", "clearClientInfo")
     const clearOAuthState = clearField("oauthState", "clearOAuthState")
 
     const getOAuthState = Effect.fn("McpAuth.getOAuthState")(function* (mcpName: string) {
@@ -131,6 +159,8 @@ export const layer = Layer.effect(
       updateClientInfo,
       updateCodeVerifier,
       clearCodeVerifier,
+      clearTokens,
+      clearClientInfo,
       updateOAuthState,
       getOAuthState,
       clearOAuthState,
