@@ -362,6 +362,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           batch(() => {
             setStore("filterActive", false)
             setStore("filter", "")
+            props.onFilter?.("")
           })
           if (input && !input.isDestroyed) {
             input.clear()

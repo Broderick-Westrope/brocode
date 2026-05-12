@@ -21,6 +21,7 @@ export function DialogTree(props: {
   const { theme } = useTheme()
   const [collapsed, setCollapsed] = createSignal(new Set<string>())
   const [selectedValue, setSelectedValue] = createSignal<string | undefined>()
+  const [filterQuery, setFilterQuery] = createSignal("")
   let selectRef: DialogSelectRef<string> | undefined
 
   onMount(() => {
@@ -371,7 +372,7 @@ export function DialogTree(props: {
 
   const options = createMemo(() => {
     const data = computed()
-    if (selectRef?.filterActive && selectRef.filter.length > 0) {
+    if (filterQuery().length > 0) {
       return data.result.map((opt) => ({
         ...opt,
         title: data.filterTitles.get(opt.value) ?? opt.title,
@@ -386,6 +387,7 @@ export function DialogTree(props: {
       options={options()}
       filterMode="on-demand"
       ref={(r) => { selectRef = r }}
+      onFilter={setFilterQuery}
       onMove={(option) => setSelectedValue(option.value)}
       hints={
         <box flexDirection="row" gap={2}>
