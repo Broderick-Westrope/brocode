@@ -220,7 +220,7 @@ export function DialogTree(props: {
     const result: DialogSelectOption<string>[] = []
     const optionToMsg = new Map<string, string>()
 
-    function walk(parentID: string | null, depth: number) {
+    function walk(parentID: string | null, indent: number, justBranched: boolean, gutters: { position: number; show: boolean }[]) {
       const children = (childrenMap.get(parentID) ?? []).toSorted((a, b) => b.time.created - a.time.created)
 
       // When a non-assistant parent has multiple assistant children (broken
@@ -233,24 +233,69 @@ export function DialogTree(props: {
         return assistants.reduce((a, b) => (a.id > b.id ? a : b)).id
       })()
 
+      // Determine visible siblings for branch-point detection
+      const visibleSiblings = children.filter((msg) => {
+        const parentMsg = msg.treeParentID ? msgMap.get(msg.treeParentID) : undefined
+        if (msg.role === "assistant" && parentMsg?.role === "assistant") return false
+        if (keepAssistantID && msg.role === "assistant" && msg.id !== keepAssistantID) return false
+        return true
+      })
+      const parentBranches = visibleSiblings.length > 1
+
+      let visibleIdx = 0
       for (const msg of children) {
         const parentMsg = msg.treeParentID ? msgMap.get(msg.treeParentID) : undefined
         if (msg.role === "assistant" && parentMsg?.role === "assistant") {
-          walk(msg.id, depth)
+          walk(msg.id, indent, justBranched, gutters)
           continue
         }
 
         // Skip earlier assistant siblings; still walk their children for branches.
         if (keepAssistantID && msg.role === "assistant" && msg.id !== keepAssistantID) {
-          walk(msg.id, depth)
+          walk(msg.id, indent, justBranched, gutters)
           continue
         }
 
-        const indent = "  ".repeat(depth)
+        const isLastVisible = visibleIdx === visibleSiblings.length - 1
         const isCompacted = compactedSet.has(msg.id)
-        const branchMarker = isCompacted ? "○ " : ancestorSet.has(msg.id) ? "● " : "  "
-        const role = msg.role === "user" ? "U" : "A"
+        const onActivePath = ancestorSet.has(msg.id)
         const tail = msg.role === "assistant" ? lastContinuation(msg.id) : undefined
+        const isLeaf = tail ? tail.id === props.leafID || msg.id === props.leafID : msg.id === props.leafID
+
+        // Check foldability
+        const msgVisibleChildren = (childrenMap.get(msg.id) ?? []).filter((c) => {
+          const p = c.treeParentID ? msgMap.get(c.treeParentID) : undefined
+          return !(c.role === "assistant" && p?.role === "assistant")
+        })
+        const hasVisibleChildren = msgVisibleChildren.length > 0
+        const isFolded = collapsed().has(msg.id)
+
+        // Build prefix with gutters and connectors (3 chars per indent level)
+        const totalChars = indent * 3
+        const connectorLevel = parentBranches && indent > 0 ? indent - 1 : -1
+        const prefixChars: string[] = []
+
+        for (let c = 0; c < totalChars; c++) {
+          const level = Math.floor(c / 3)
+          const posInLevel = c % 3
+          const gutter = gutters.find((g) => g.position === level)
+
+          if (gutter) {
+            prefixChars.push(posInLevel === 0 ? (gutter.show ? "│" : " ") : " ")
+          } else if (level === connectorLevel) {
+            if (posInLevel === 0) prefixChars.push(isLastVisible ? "└" : "├")
+            else if (posInLevel === 1) prefixChars.push(isFolded ? "⊞" : hasVisibleChildren ? "⊟" : "─")
+            else prefixChars.push(" ")
+          } else {
+            prefixChars.push(" ")
+          }
+        }
+
+        const prefix = prefixChars.join("")
+        const showsFoldInConnector = parentBranches && indent > 0
+        const foldMarker = isFolded && !showsFoldInConnector ? "⊞ " : ""
+        const pathMarker = isCompacted ? "○ " : onActivePath ? "• " : "  "
+        const role = msg.role === "user" ? "user" : "assistant"
 
         let preview = ""
         if (msg.role === "user") {
@@ -270,22 +315,12 @@ export function DialogTree(props: {
           if (preview === "[response]" && tail && tail.id !== msg.id) preview = assistantPreview(msg)
         }
 
-        const isLeaf = tail ? tail.id === props.leafID || msg.id === props.leafID : msg.id === props.leafID
-        const visibleChildren = (childrenMap.get(msg.id) ?? []).filter((c) => {
-          const p = c.treeParentID ? msgMap.get(c.treeParentID) : undefined
-          return !(c.role === "assistant" && p?.role === "assistant")
-        })
-        const hasVisibleChildren = visibleChildren.length > 0
-        const collapseIndicator = hasVisibleChildren
-          ? collapsed().has(msg.id) ? "▸ " : "▾ "
-          : "  "
-
         const optionValue = tail?.id ?? msg.id
         optionToMsg.set(optionValue, msg.id)
 
         const labelPrefix = msg.label ? `[${msg.label}] ` : ""
         result.push({
-          title: `${indent}${branchMarker}${collapseIndicator}${role}: ${labelPrefix}${preview}${isLeaf ? " ← current" : ""}`,
+          title: `${prefix}${foldMarker}${pathMarker}${role}: ${labelPrefix}${preview}${isLeaf ? " ← current" : ""}`,
           value: optionValue,
           footer: Locale.time(msg.time.created),
           onSelect: (dialog) => {
@@ -306,13 +341,26 @@ export function DialogTree(props: {
           },
         })
 
-        if (!collapsed().has(msg.id)) {
-          walk(msg.id, depth + 1)
+        // Compute child indent and gutters
+        const msgBranches = msgVisibleChildren.length > 1
+        let childIndent: number
+        if (msgBranches) childIndent = indent + 1
+        else if (justBranched && indent > 0) childIndent = indent + 1
+        else childIndent = indent
+
+        const childGutters = parentBranches && indent > 0
+          ? [...gutters, { position: Math.max(0, indent - 1), show: !isLastVisible }]
+          : gutters
+
+        if (!isFolded) {
+          walk(msg.id, childIndent, msgBranches, childGutters)
         }
+
+        visibleIdx++
       }
     }
 
-    walk(null, 0)
+    walk(null, 0, false, [])
     return { result, optionToMsg, childrenMap, msgMap, ancestorSet }
   })
 
