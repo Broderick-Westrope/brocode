@@ -7,6 +7,7 @@ import { useDialog } from "../../ui/dialog"
 import type { PromptInfo } from "../../component/prompt/history"
 import { useKeyboard } from "@opentui/solid"
 import { DialogPrompt } from "@tui/ui/dialog-prompt"
+import { useTheme } from "@tui/context/theme"
 
 export function DialogTree(props: {
   sessionID: string
@@ -17,6 +18,7 @@ export function DialogTree(props: {
 }) {
   const sync = useSync()
   const dialog = useDialog()
+  const { theme } = useTheme()
   const [collapsed, setCollapsed] = createSignal(new Set<string>())
   const [selectedValue, setSelectedValue] = createSignal<string | undefined>()
   let selectRef: DialogSelectRef<string> | undefined
@@ -371,9 +373,28 @@ export function DialogTree(props: {
       title="Session Tree"
       options={options()}
       filterMode="on-demand"
-      placeholder="←/→ collapse/expand · l label · d delete · / filter"
       ref={(r) => { selectRef = r }}
       onMove={(option) => setSelectedValue(option.value)}
+      hints={
+        <box flexDirection="row" gap={2}>
+          <text>
+            <span style={{ fg: theme.text }}><b>←/→</b> </span>
+            <span style={{ fg: theme.textMuted }}>collapse/expand</span>
+          </text>
+          <text>
+            <span style={{ fg: theme.text }}><b>l</b> </span>
+            <span style={{ fg: theme.textMuted }}>label</span>
+          </text>
+          <text>
+            <span style={{ fg: theme.text }}><b>d</b> </span>
+            <span style={{ fg: theme.textMuted }}>delete</span>
+          </text>
+          <text>
+            <span style={{ fg: theme.text }}><b>/</b> </span>
+            <span style={{ fg: theme.textMuted }}>filter</span>
+          </text>
+        </box>
+      }
     />
   )
 }

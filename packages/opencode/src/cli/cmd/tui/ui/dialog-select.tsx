@@ -11,7 +11,7 @@ import { useTheme, selectedForeground } from "@tui/context/theme"
 import { entries, filter, flatMap, groupBy, pipe } from "remeda"
 import { batch, createEffect, createMemo, For, Show, type JSX, on } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useTerminalDimensions } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import * as fuzzysort from "fuzzysort"
 import { isDeepEqual } from "remeda"
 import { useDialog, type DialogContext } from "@tui/ui/dialog"
@@ -26,6 +26,7 @@ export interface DialogSelectProps<T> {
   options: DialogSelectOption<T>[]
   flat?: boolean
   filterMode?: "always" | "on-demand"
+  hints?: JSX.Element
   ref?: (ref: DialogSelectRef<T>) => void
   onMove?: (option: DialogSelectOption<T>) => void
   onFilter?: (query: string) => void
@@ -329,6 +330,34 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
 
   })
 
+  // Handle on-demand filter activation ("/") and deactivation ("Escape")
+  useKeyboard((evt) => {
+    if (props.filterMode !== "on-demand") return
+
+    if (!store.filterActive && evt.name === "/") {
+      evt.preventDefault()
+      evt.stopPropagation()
+      setStore("filterActive", true)
+      setTimeout(() => {
+        if (!input) return
+        if (input.isDestroyed) return
+        input.focus()
+      }, 1)
+      return
+    }
+
+    if (store.filterActive && evt.name === "escape") {
+      evt.preventDefault()
+      evt.stopPropagation()
+      batch(() => {
+        setStore("filterActive", false)
+        setStore("filter", "")
+      })
+      if (input && !input.isDestroyed) input.blur()
+      return
+    }
+  })
+
   let scroll: ScrollBoxRenderable | undefined
   const ref: DialogSelectRef<T> = {
     get filter() {
@@ -481,7 +510,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           </For>
         </scrollbox>
       </Show>
-      <Show when={visibleActions().length} fallback={<box flexShrink={0} />}>
+      <Show when={visibleActions().length || props.hints} fallback={<box flexShrink={0} />}>
         <box
           paddingRight={2}
           paddingLeft={4}
@@ -501,6 +530,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                 </text>
               )}
             </For>
+            {props.hints}
           </box>
           <box flexDirection="row" gap={2}>
             <For each={right()}>
