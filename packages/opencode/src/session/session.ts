@@ -489,7 +489,7 @@ export interface Interface {
   ) => Effect.Effect<Option.Option<MessageV2.WithParts>>
   readonly branchTo: (input: {
     sessionID: SessionID
-    messageID: MessageID
+    messageID?: MessageID
     summary?: string
     fromLeafID?: MessageID
     model?: string
@@ -867,27 +867,34 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
 
     const branchTo = Effect.fn("Session.branchTo")(function* (input: {
       sessionID: SessionID
-      messageID: MessageID
+      messageID?: MessageID
       summary?: string
       fromLeafID?: MessageID
       model?: string
     }) {
+      // No messageID: clear leafID to branch before root
+      if (!input.messageID) {
+        leafHead.delete(input.sessionID)
+        yield* patch(input.sessionID, { leafID: null })
+        return
+      }
+      const messageID = input.messageID
       // Validate messageID belongs to this session
       yield* Effect.try({
-        try: () => MessageV2.get({ sessionID: input.sessionID, messageID: input.messageID }),
-        catch: () => new NotFoundError({ message: `Message ${input.messageID} not found in session ${input.sessionID}` }),
+        try: () => MessageV2.get({ sessionID: input.sessionID, messageID }),
+        catch: () => new NotFoundError({ message: `Message ${messageID} not found in session ${input.sessionID}` }),
       }).pipe(Effect.orDie)
       // Neither provided: simple navigation
       if (!input.summary && !input.fromLeafID) {
-        leafHead.set(input.sessionID, input.messageID)
-        yield* patch(input.sessionID, { leafID: input.messageID })
+        leafHead.set(input.sessionID, messageID)
+        yield* patch(input.sessionID, { leafID: messageID })
         return
       }
       // Only one provided: invalid state, treat as simple navigation
       if (!input.summary || !input.fromLeafID) {
         log.warn("branchTo: partial summary inputs, falling back to simple navigation", { sessionID: input.sessionID, summary: !!input.summary, fromLeafID: !!input.fromLeafID })
-        leafHead.set(input.sessionID, input.messageID)
-        yield* patch(input.sessionID, { leafID: input.messageID })
+        leafHead.set(input.sessionID, messageID)
+        yield* patch(input.sessionID, { leafID: messageID })
         return
       }
 
@@ -896,7 +903,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
         id: MessageID.ascending(),
         role: "user",
         sessionID: input.sessionID,
-        treeParentID: input.messageID,
+        treeParentID: messageID,
         time: { created: Date.now() },
         agent: "compaction",
         model: {

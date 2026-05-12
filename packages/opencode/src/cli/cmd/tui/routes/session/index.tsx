@@ -195,7 +195,11 @@ export function Session() {
   const messages = createMemo(() => {
     const all = allMessages()
     const leafID = session()?.leafID
-    if (!leafID) return all
+    if (!leafID) {
+      // No leafID: show all for legacy sessions, empty for tree sessions
+      if (all.some((m) => m.treeParentID)) return []
+      return all
+    }
     // Build ancestor set by walking from leaf to root via treeParentID
     const msgMap = new Map(all.map((m) => [m.id, m]))
     const ancestorSet = new Set<string>()

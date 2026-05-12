@@ -55,7 +55,7 @@ export const UpdatePayload = Schema.Struct({
 })
 export const ForkPayload = Schema.Struct(Struct.omit(Session.ForkInput.fields, ["sessionID"]))
 export const BranchToPayload = Schema.Struct({
-  messageID: MessageID,
+  messageID: Schema.optional(MessageID),
   summary: Schema.optional(Schema.String),
   fromLeafID: Schema.optional(MessageID),
   model: Schema.optional(Schema.String),

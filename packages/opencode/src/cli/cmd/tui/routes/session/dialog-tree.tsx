@@ -12,7 +12,7 @@ import { useTheme } from "@tui/context/theme"
 export function DialogTree(props: {
   sessionID: string
   leafID?: string
-  onBranch: (messageID: string, prompt?: PromptInfo) => void
+  onBranch: (messageID: string | undefined, prompt?: PromptInfo) => void
   onDelete?: (messageID: string) => Promise<void>
   onLabel?: (messageID: string, label: string | undefined) => Promise<void>
 }) {
@@ -339,7 +339,7 @@ export function DialogTree(props: {
                 },
                 { input: "", parts: [] as PromptInfo["parts"] },
               )
-              props.onBranch(msg.treeParentID ?? msg.id, prompt)
+              props.onBranch(msg.treeParentID, prompt)
             } else {
               props.onBranch(tail?.id ?? msg.id)
             }

@@ -11,7 +11,7 @@ export function DialogTimeline(props: {
   sessionID: string
   leafID?: string
   onMove: (messageID: string) => void
-  onBranch?: (messageID: string, prompt?: PromptInfo) => void
+  onBranch?: (messageID: string | undefined, prompt?: PromptInfo) => void
   setPrompt?: (prompt: PromptInfo) => void
 }) {
   const sync = useSync()
@@ -23,7 +23,10 @@ export function DialogTimeline(props: {
 
   const branchMessages = createMemo(() => {
     const all = sync.data.message[props.sessionID] ?? []
-    if (!props.leafID) return all
+    if (!props.leafID) {
+      if (all.some((m) => m.treeParentID)) return []
+      return all
+    }
     const msgMap = new Map(all.map((m) => [m.id, m]))
     const ancestorSet = new Set<string>()
     let current: string | undefined = props.leafID

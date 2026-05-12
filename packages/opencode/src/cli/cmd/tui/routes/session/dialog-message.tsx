@@ -9,7 +9,7 @@ import { strip } from "@tui/component/prompt/part"
 export function DialogMessage(props: {
   messageID: string
   sessionID: string
-  onBranch?: (messageID: string, prompt?: PromptInfo) => void
+  onBranch?: (messageID: string | undefined, prompt?: PromptInfo) => void
   setPrompt?: (prompt: PromptInfo) => void
 }) {
   const sync = useSync()
@@ -41,7 +41,7 @@ export function DialogMessage(props: {
           onSelect: (dialog) => {
             const msg = message()
             if (!msg) return
-            props.onBranch?.(msg.treeParentID ?? msg.id, getPromptInfo())
+            props.onBranch?.(msg.treeParentID, getPromptInfo())
             dialog.clear()
           },
         },
