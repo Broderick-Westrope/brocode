@@ -363,7 +363,10 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
             setStore("filterActive", false)
             setStore("filter", "")
           })
-          if (input && !input.isDestroyed) input.blur()
+          if (input && !input.isDestroyed) {
+            input.clear()
+            input.blur()
+          }
         },
       },
     ],

@@ -149,7 +149,7 @@ export function DialogTree(props: {
 
   const computed = createMemo(() => {
     const messages = sync.data.message[props.sessionID] ?? []
-    if (!messages.length) return { result: [], optionToMsg: new Map<string, string>(), childrenMap: new Map<string | null, typeof messages>(), msgMap: new Map<string, typeof messages[0]>(), ancestorSet: new Set<string>() }
+    if (!messages.length) return { result: [], filterTitles: new Map<string, string>(), optionToMsg: new Map<string, string>(), childrenMap: new Map<string | null, typeof messages>(), msgMap: new Map<string, typeof messages[0]>(), ancestorSet: new Set<string>() }
 
     // Build children map and message lookup for tree traversal
     const msgMap = new Map(messages.map((m) => [m.id, m]))
@@ -221,6 +221,7 @@ export function DialogTree(props: {
 
     const result: DialogSelectOption<string>[] = []
     const optionToMsg = new Map<string, string>()
+    const filterTitles = new Map<string, string>()
 
     function walk(parentID: string | null, indent: number, justBranched: boolean, gutters: { position: number; show: boolean }[]) {
       const children = (childrenMap.get(parentID) ?? []).toSorted((a, b) => b.time.created - a.time.created)
@@ -321,8 +322,10 @@ export function DialogTree(props: {
         optionToMsg.set(optionValue, msg.id)
 
         const labelPrefix = msg.label ? `[${msg.label}] ` : ""
+        const content = `${role}: ${labelPrefix}${preview}${isLeaf ? " ← current" : ""}`
+        filterTitles.set(optionValue, `${pathMarker}${content}`)
         result.push({
-          title: `${prefix}${foldMarker}${pathMarker}${role}: ${labelPrefix}${preview}${isLeaf ? " ← current" : ""}`,
+          title: `${prefix}${foldMarker}${pathMarker}${content}`,
           value: optionValue,
           footer: Locale.time(msg.time.created),
           onSelect: (dialog) => {
@@ -363,10 +366,19 @@ export function DialogTree(props: {
     }
 
     walk(null, 0, false, [])
-    return { result, optionToMsg, childrenMap, msgMap, ancestorSet }
+    return { result, filterTitles, optionToMsg, childrenMap, msgMap, ancestorSet }
   })
 
-  const options = createMemo(() => computed().result)
+  const options = createMemo(() => {
+    const data = computed()
+    if (selectRef?.filterActive && selectRef.filter.length > 0) {
+      return data.result.map((opt) => ({
+        ...opt,
+        title: data.filterTitles.get(opt.value) ?? opt.title,
+      }))
+    }
+    return data.result
+  })
 
   return (
     <DialogSelect
