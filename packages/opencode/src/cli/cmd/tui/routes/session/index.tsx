@@ -530,6 +530,7 @@ export function Session() {
               if (child) scroll.scrollBy(child.y - scroll.y - 1)
             }}
             sessionID={route.sessionID}
+            leafID={currentSession.leafID ?? undefined}
             onBranch={async (messageID, promptInfo) => {
               await sdk.client.session.branchTo({
                 sessionID: currentSession.id,
