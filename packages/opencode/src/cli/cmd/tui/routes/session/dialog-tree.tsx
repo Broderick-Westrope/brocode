@@ -222,9 +222,26 @@ export function DialogTree(props: {
 
     function walk(parentID: string | null, depth: number) {
       const children = (childrenMap.get(parentID) ?? []).toSorted((a, b) => b.time.created - a.time.created)
+
+      // When a non-assistant parent has multiple assistant children (broken
+      // continuation chain), keep only the final one — earlier chunks add noise.
+      const keepAssistantID = (() => {
+        const parentRole = parentID ? msgMap.get(parentID)?.role : undefined
+        if (parentRole === "assistant") return undefined
+        const assistants = children.filter((c) => c.role === "assistant")
+        if (assistants.length <= 1) return undefined
+        return assistants.reduce((a, b) => (a.id > b.id ? a : b)).id
+      })()
+
       for (const msg of children) {
         const parentMsg = msg.treeParentID ? msgMap.get(msg.treeParentID) : undefined
         if (msg.role === "assistant" && parentMsg?.role === "assistant") {
+          walk(msg.id, depth)
+          continue
+        }
+
+        // Skip earlier assistant siblings; still walk their children for branches.
+        if (keepAssistantID && msg.role === "assistant" && msg.id !== keepAssistantID) {
           walk(msg.id, depth)
           continue
         }
