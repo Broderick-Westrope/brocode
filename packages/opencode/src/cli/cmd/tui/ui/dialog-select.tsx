@@ -226,6 +226,11 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   }
 
   function submit() {
+    if (props.filterMode === "on-demand" && store.filterActive) {
+      setStore("filterActive", false)
+      if (input && !input.isDestroyed) input.blur()
+      return
+    }
     setStore("input", "keyboard")
     const option = selected()
     if (!option) return
@@ -330,33 +335,39 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
 
   })
 
-  // Handle on-demand filter activation ("/") and deactivation ("Escape")
+  // Activate on-demand filter when "/" is pressed
   useKeyboard((evt) => {
     if (props.filterMode !== "on-demand") return
-
-    if (!store.filterActive && evt.name === "/") {
-      evt.preventDefault()
-      evt.stopPropagation()
-      setStore("filterActive", true)
-      setTimeout(() => {
-        if (!input) return
-        if (input.isDestroyed) return
-        input.focus()
-      }, 1)
-      return
-    }
-
-    if (store.filterActive && evt.name === "escape") {
-      evt.preventDefault()
-      evt.stopPropagation()
-      batch(() => {
-        setStore("filterActive", false)
-        setStore("filter", "")
-      })
-      if (input && !input.isDestroyed) input.blur()
-      return
-    }
+    if (store.filterActive) return
+    if (evt.name !== "/") return
+    evt.preventDefault()
+    evt.stopPropagation()
+    setStore("filterActive", true)
+    setTimeout(() => {
+      if (!input) return
+      if (input.isDestroyed) return
+      input.focus()
+    }, 1)
   })
+
+  // Deactivate on-demand filter on Escape (takes priority over dialog close)
+  useBindings(() => ({
+    enabled: props.filterMode === "on-demand" && store.filterActive,
+    bindings: [
+      {
+        key: "escape",
+        desc: "Deactivate filter",
+        group: "Dialog",
+        cmd: () => {
+          batch(() => {
+            setStore("filterActive", false)
+            setStore("filter", "")
+          })
+          if (input && !input.isDestroyed) input.blur()
+        },
+      },
+    ],
+  }))
 
   let scroll: ScrollBoxRenderable | undefined
   const ref: DialogSelectRef<T> = {
