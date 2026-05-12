@@ -122,6 +122,7 @@ const sessionBindingCommands = [
   "session.rename",
   "session.timeline",
   "session.fork",
+  "session.tree",
   "session.compact",
   "session.unshare",
   "session.undo",
