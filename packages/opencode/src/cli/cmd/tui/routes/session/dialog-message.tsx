@@ -9,44 +9,39 @@ import { strip } from "@tui/component/prompt/part"
 export function DialogMessage(props: {
   messageID: string
   sessionID: string
+  onBranch?: (messageID: string, prompt?: PromptInfo) => void
   setPrompt?: (prompt: PromptInfo) => void
 }) {
   const sync = useSync()
   const sdk = useSDK()
   const message = createMemo(() => sync.data.message[props.sessionID]?.find((x) => x.id === props.messageID))
 
+  function getPromptInfo(): PromptInfo | undefined {
+    const msg = message()
+    if (!msg) return undefined
+    const parts = sync.data.part[msg.id] ?? []
+    return parts.reduce(
+      (agg, part) => {
+        if (part.type === "text" && !part.synthetic) agg.input += part.text
+        if (part.type === "file") agg.parts.push(strip(part))
+        return agg
+      },
+      { input: "", parts: [] as PromptInfo["parts"] },
+    )
+  }
+
   return (
     <DialogSelect
       title="Message Actions"
       options={[
         {
-          title: "Revert",
-          value: "session.revert",
-          description: "undo messages and file changes",
+          title: "Branch from here",
+          value: "session.branch",
+          description: "start a new branch from this message",
           onSelect: (dialog) => {
             const msg = message()
             if (!msg) return
-
-            void sdk.client.session.revert({
-              sessionID: props.sessionID,
-              messageID: msg.id,
-            })
-
-            if (props.setPrompt) {
-              const parts = sync.data.part[msg.id]
-              const promptInfo = parts.reduce(
-                (agg, part) => {
-                  if (part.type === "text") {
-                    if (!part.synthetic) agg.input += part.text
-                  }
-                  if (part.type === "file") agg.parts.push(strip(part))
-                  return agg
-                },
-                { input: "", parts: [] as PromptInfo["parts"] },
-              )
-              props.setPrompt(promptInfo)
-            }
-
+            props.onBranch?.(msg.treeParentID ?? msg.id, getPromptInfo())
             dialog.clear()
           },
         },
@@ -58,7 +53,7 @@ export function DialogMessage(props: {
             const msg = message()
             if (!msg) return
 
-            const parts = sync.data.part[msg.id]
+            const parts = sync.data.part[msg.id] ?? []
             const text = parts.reduce((agg, part) => {
               if (part.type === "text" && !part.synthetic) {
                 agg += part.text

@@ -10,6 +10,7 @@ import type { PromptInfo } from "../../component/prompt/history"
 export function DialogTimeline(props: {
   sessionID: string
   onMove: (messageID: string) => void
+  onBranch?: (messageID: string, prompt?: PromptInfo) => void
   setPrompt?: (prompt: PromptInfo) => void
 }) {
   const sync = useSync()
@@ -34,7 +35,12 @@ export function DialogTimeline(props: {
         footer: Locale.time(message.time.created),
         onSelect: (dialog) => {
           dialog.replace(() => (
-            <DialogMessage messageID={message.id} sessionID={props.sessionID} setPrompt={props.setPrompt} />
+            <DialogMessage
+              messageID={message.id}
+              sessionID={props.sessionID}
+              onBranch={props.onBranch}
+              setPrompt={props.setPrompt}
+            />
           ))
         },
       })

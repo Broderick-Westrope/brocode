@@ -164,6 +164,13 @@ export const layer = Layer.effect(
           }
         }
       }
+      // Update leafID to last surviving message so the tree stays connected
+      const removedIDs = new Set(remove.map((m) => m.info.id))
+      const lastSurviving = msgs.findLast((m) => !removedIDs.has(m.info.id))
+      if (lastSurviving) {
+        yield* sessions.branchTo({ sessionID, messageID: lastSurviving.info.id })
+      }
+
       yield* sessions.clearRevert(sessionID)
     })
 

@@ -772,10 +772,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const markReady = ready ? ready.open.pipe(Effect.asVoid) : Effect.void
           const { msg, part, cwd } = yield* Effect.gen(function* () {
             const ctx = yield* InstanceState.context
-            const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
-            if (session.revert) {
-              yield* revert.cleanup(session)
+            const preSession = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+            if (preSession.revert) {
+              yield* revert.cleanup(preSession)
             }
+            const session = preSession.revert
+              ? yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+              : preSession
             const agent = yield* agents.get(input.agent)
             if (!agent) {
               const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)

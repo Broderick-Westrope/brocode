@@ -518,6 +518,8 @@ export function Session() {
         name: "timeline",
       },
       run: () => {
+        const currentSession = session()
+        if (!currentSession) return
         dialog.replace(() => (
           <DialogTimeline
             onMove={(messageID) => {
@@ -527,6 +529,14 @@ export function Session() {
               if (child) scroll.scrollBy(child.y - scroll.y - 1)
             }}
             sessionID={route.sessionID}
+            onBranch={async (messageID, promptInfo) => {
+              await sdk.client.session.branchTo({
+                sessionID: currentSession.id,
+                messageID,
+              })
+              if (promptInfo) prompt?.set(promptInfo)
+              dialog.clear()
+            }}
             setPrompt={(promptInfo) => prompt?.set(promptInfo)}
           />
         ))
