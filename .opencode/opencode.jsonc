@@ -9,7 +9,7 @@
   "mcp": {
     "terminal": {
       "type": "local",
-      "command": ["npx", "-y", "mcp-interactive-terminal"]
+      "command": ["npx", "-y", "github:Broderick-Westrope/mcp-interactive-terminal"]
     }
   },
   "tools": {
