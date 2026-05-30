@@ -9,7 +9,9 @@ import type { PromptInfo } from "../../component/prompt/history"
 
 export function DialogTimeline(props: {
   sessionID: string
+  leafID?: string
   onMove: (messageID: string) => void
+  onBranch?: (messageID: string | undefined, prompt?: PromptInfo) => void
   setPrompt?: (prompt: PromptInfo) => void
 }) {
   const sync = useSync()
@@ -19,10 +21,27 @@ export function DialogTimeline(props: {
     dialog.setSize("large")
   })
 
+  const branchMessages = createMemo(() => {
+    const all = sync.data.message[props.sessionID] ?? []
+    if (!props.leafID) {
+      if (all.some((m) => m.treeParentID)) return []
+      return all
+    }
+    const msgMap = new Map(all.map((m) => [m.id, m]))
+    const ancestorSet = new Set<string>()
+    let current: string | undefined = props.leafID
+    while (current) {
+      if (ancestorSet.has(current)) break
+      ancestorSet.add(current)
+      current = msgMap.get(current)?.treeParentID
+    }
+    if (ancestorSet.size <= 1 && !msgMap.get(props.leafID)?.treeParentID) return all
+    return all.filter((m) => ancestorSet.has(m.id))
+  })
+
   const options = createMemo((): DialogSelectOption<string>[] => {
-    const messages = sync.data.message[props.sessionID] ?? []
     const result = [] as DialogSelectOption<string>[]
-    for (const message of messages) {
+    for (const message of branchMessages()) {
       if (message.role !== "user") continue
       const part = (sync.data.part[message.id] ?? []).find(
         (x) => x.type === "text" && !x.synthetic && !x.ignored,
@@ -34,7 +53,12 @@ export function DialogTimeline(props: {
         footer: Locale.time(message.time.created),
         onSelect: (dialog) => {
           dialog.replace(() => (
-            <DialogMessage messageID={message.id} sessionID={props.sessionID} setPrompt={props.setPrompt} />
+            <DialogMessage
+              messageID={message.id}
+              sessionID={props.sessionID}
+              onBranch={props.onBranch}
+              setPrompt={props.setPrompt}
+            />
           ))
         },
       })

@@ -180,6 +180,9 @@ export const Info = Schema.Struct({
   small_model: Schema.optional(ConfigModelID).annotate({
     description: "Small model to use for tasks like title generation in the format of provider/model",
   }),
+  summarisation_model: Schema.optional(ConfigModelID).annotate({
+    description: "Model to use for branch summarisation in the format of provider/model",
+  }),
   default_agent: Schema.optional(Schema.String).annotate({
     description:
       "Default agent to use when none is specified. Must be a primary agent. Falls back to 'build' if not set or if the specified agent is invalid.",

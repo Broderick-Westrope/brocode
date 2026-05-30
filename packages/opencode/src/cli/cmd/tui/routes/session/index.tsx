@@ -59,7 +59,7 @@ import { DialogMessage } from "./dialog-message"
 import type { PromptInfo } from "../../component/prompt/history"
 import { DialogConfirm } from "@tui/ui/dialog-confirm"
 import { DialogTimeline } from "./dialog-timeline"
-import { DialogForkFromTimeline } from "./dialog-fork-from-timeline"
+import { DialogTree } from "./dialog-tree"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
 import { Sidebar } from "./sidebar"
 import { SubagentFooter } from "./subagent-footer.tsx"
@@ -122,6 +122,7 @@ const sessionBindingCommands = [
   "session.rename",
   "session.timeline",
   "session.fork",
+  "session.tree",
   "session.compact",
   "session.unshare",
   "session.undo",
@@ -190,7 +191,28 @@ export function Session() {
       .filter((x) => x.parentID === parentID || x.id === parentID)
       .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   })
-  const messages = createMemo(() => sync.data.message[route.sessionID] ?? [])
+  const allMessages = createMemo(() => sync.data.message[route.sessionID] ?? [])
+  const messages = createMemo(() => {
+    const all = allMessages()
+    const leafID = session()?.leafID
+    if (!leafID) {
+      // No leafID: show all for legacy sessions, empty for tree sessions
+      if (all.some((m) => m.treeParentID)) return []
+      return all
+    }
+    // Build ancestor set by walking from leaf to root via treeParentID
+    const msgMap = new Map(all.map((m) => [m.id, m]))
+    const ancestorSet = new Set<string>()
+    let current: string | undefined = leafID
+    while (current) {
+      if (ancestorSet.has(current)) break
+      ancestorSet.add(current)
+      current = msgMap.get(current)?.treeParentID
+    }
+    // If no messages have treeParentID (legacy session), show all
+    if (ancestorSet.size <= 1 && !msgMap.get(leafID)?.treeParentID) return all
+    return all.filter((m) => ancestorSet.has(m.id))
+  })
   const permissions = createMemo(() => {
     if (session()?.parentID) return []
     return children().flatMap((x) => sync.data.permission[x.id] ?? [])
@@ -501,6 +523,8 @@ export function Session() {
         name: "timeline",
       },
       run: () => {
+        const currentSession = session()
+        if (!currentSession) return
         dialog.replace(() => (
           <DialogTimeline
             onMove={(messageID) => {
@@ -510,29 +534,71 @@ export function Session() {
               if (child) scroll.scrollBy(child.y - scroll.y - 1)
             }}
             sessionID={route.sessionID}
+            leafID={currentSession.leafID ?? undefined}
+            onBranch={async (messageID, promptInfo) => {
+              await sdk.client.session.branchTo({
+                sessionID: currentSession.id,
+                messageID,
+              })
+              if (promptInfo) prompt?.set(promptInfo)
+              dialog.clear()
+            }}
             setPrompt={(promptInfo) => prompt?.set(promptInfo)}
           />
         ))
       },
     },
     {
-      title: "Fork session",
-      value: "session.fork",
+      title: "Clone branch",
+      value: "session.clone",
       category: "Session",
       slash: {
-        name: "fork",
+        name: "clone",
+      },
+      description: "Extract current branch into a new session",
+      run: async () => {
+        const currentSession = session()
+        if (!currentSession) return
+        const cloned = await sdk.client.session.clone({ sessionID: currentSession.id })
+        if (!cloned.data) return
+        navigate({ type: "session", sessionID: cloned.data.id })
+        dialog.clear()
+      },
+    },
+    {
+      title: "Session tree",
+      value: "session.tree",
+      category: "Session",
+      slash: {
+        name: "tree",
       },
       run: () => {
+        const currentSession = session()
+        if (!currentSession) return
         dialog.replace(() => (
-          <DialogForkFromTimeline
-            onMove={(messageID) => {
-              if (!messageID) return
-              const child = scroll.getChildren().find((child) => {
-                return child.id === messageID
+          <DialogTree
+            sessionID={currentSession.id}
+            leafID={currentSession.leafID ?? undefined}
+            onBranch={async (messageID, promptInfo) => {
+              await sdk.client.session.branchTo({
+                sessionID: currentSession.id,
+                messageID,
               })
-              if (child) scroll.scrollBy(child.y - scroll.y - 1)
+              if (promptInfo) prompt?.set(promptInfo)
             }}
-            sessionID={route.sessionID}
+            onDelete={async (messageID) => {
+              await sdk.client.session.deleteSubtree({
+                sessionID: currentSession.id,
+                messageID,
+              })
+            }}
+            onLabel={async (messageID, label) => {
+              await sdk.client.session.setLabel({
+                sessionID: currentSession.id,
+                messageID,
+                label,
+              })
+            }}
           />
         ))
       },

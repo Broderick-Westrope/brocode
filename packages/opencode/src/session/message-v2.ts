@@ -221,6 +221,17 @@ export const CompactionPart = Schema.Struct({
   .pipe(withStatics((s) => ({ zod: zod(s) })))
 export type CompactionPart = Types.DeepMutable<Schema.Schema.Type<typeof CompactionPart>>
 
+export const BranchSummaryPart = Schema.Struct({
+  ...partBase,
+  type: Schema.Literal("branch_summary"),
+  summary: Schema.String,
+  fromLeafID: MessageID,
+  model: Schema.String,
+})
+  .annotate({ identifier: "BranchSummaryPart" })
+  .pipe(withStatics((s) => ({ zod: zod(s) })))
+export type BranchSummaryPart = Types.DeepMutable<Schema.Schema.Type<typeof BranchSummaryPart>>
+
 export const SubtaskPart = Schema.Struct({
   ...partBase,
   type: Schema.Literal("subtask"),
@@ -373,6 +384,8 @@ export type ToolPart = Omit<Types.DeepMutable<Schema.Schema.Type<typeof ToolPart
 const messageBase = {
   id: MessageID,
   sessionID: SessionID,
+  treeParentID: Schema.optional(MessageID),
+  label: Schema.optional(Schema.String),
 }
 
 export const User = Schema.Struct({
@@ -415,6 +428,7 @@ const _Part = Schema.Union([
   AgentPart,
   RetryPart,
   CompactionPart,
+  BranchSummaryPart,
 ]).annotate({ discriminator: "type", identifier: "Part" })
 export const Part = Object.assign(_Part, {
   zod: zod(_Part) as unknown as z.ZodType<
@@ -430,6 +444,7 @@ export const Part = Object.assign(_Part, {
     | AgentPart
     | RetryPart
     | CompactionPart
+    | BranchSummaryPart
   >,
 })
 export type Part =
@@ -445,6 +460,7 @@ export type Part =
   | AgentPart
   | RetryPart
   | CompactionPart
+  | BranchSummaryPart
 
 const AssistantErrorSchema = Schema.Union([
   AuthError.EffectSchema,
@@ -601,7 +617,18 @@ const PartRemovedEventSchema = Schema.Struct({
   partID: PartID,
 })
 
+const SubtreeRemovedEventSchema = Schema.Struct({
+  sessionID: SessionID,
+  messageIDs: Schema.Array(MessageID),
+})
+
 export const Event = {
+  SubtreeRemoved: SyncEvent.define({
+    type: "message.subtree_removed",
+    version: 1,
+    aggregate: "sessionID",
+    schema: SubtreeRemovedEventSchema,
+  }),
   Updated: SyncEvent.define({
     type: "message.updated",
     version: 1,
@@ -669,6 +696,7 @@ const info = (row: typeof MessageTable.$inferSelect) =>
     ...row.data,
     id: row.id,
     sessionID: row.session_id,
+    treeParentID: row.tree_parent_id ?? undefined,
   }) as Info
 
 const part = (row: typeof PartTable.$inferSelect) =>
@@ -813,6 +841,12 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
           userMessage.parts.push({
             type: "text",
             text: "What did we do so far?",
+          })
+        }
+        if (part.type === "branch_summary") {
+          userMessage.parts.push({
+            type: "text",
+            text: `[Branch summary — previous approach: ${part.summary}]`,
           })
         }
         if (part.type === "subtask") {
@@ -1141,7 +1175,7 @@ export function filterCompacted(msgs: Iterable<WithParts>) {
 }
 
 export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: SessionID) {
-  return filterCompacted(stream(sessionID))
+  return filterCompacted([...streamBranch(sessionID)].reverse())
 })
 
 export function fromError(
@@ -1248,6 +1282,74 @@ export function fromError(
         }
       } catch {}
       return new NamedError.Unknown({ message: JSON.stringify(e) }, { cause: e }).toObject()
+  }
+}
+
+export function getChildren(input: { sessionID: SessionID; messageID: MessageID }): WithParts[] {
+  const rows = Database.use((db) =>
+    db
+      .select()
+      .from(MessageTable)
+      .where(and(eq(MessageTable.session_id, input.sessionID), eq(MessageTable.tree_parent_id, input.messageID)))
+      .all(),
+  )
+  return hydrate(rows)
+}
+
+export function getAncestorPath(sessionID: SessionID, leafID?: MessageID): MessageID[] {
+  const rows = Database.use((db) =>
+    db
+      .select({ id: MessageTable.id, tree_parent_id: MessageTable.tree_parent_id })
+      .from(MessageTable)
+      .where(eq(MessageTable.session_id, sessionID))
+      .orderBy(MessageTable.time_created)
+      .all(),
+  )
+
+  if (rows.length === 0) return []
+
+  // Legacy fallback: no tree data — return all IDs ordered by time_created ASC
+  const hasTreeData = rows.some((row) => row.tree_parent_id !== null)
+  if (!hasTreeData) return rows.map((row) => row.id as MessageID)
+
+  const parentMap = new Map<string, string | null>()
+  for (const row of rows) {
+    parentMap.set(row.id, row.tree_parent_id ?? null)
+  }
+
+  const startID = leafID ?? (rows[rows.length - 1]?.id as MessageID | undefined)
+
+  if (!startID) return []
+
+  const path: MessageID[] = []
+  const visited = new Set<string>()
+  let current: string | undefined = startID
+  while (current) {
+    if (visited.has(current)) break
+    visited.add(current)
+    path.push(current as MessageID)
+    const parent = parentMap.get(current)
+    if (parent === undefined || parent === null) break
+    current = parent
+  }
+
+  path.reverse()
+  return path
+}
+
+export function* streamBranch(sessionID: SessionID, leafID?: MessageID): Generator<WithParts> {
+  const ids = getAncestorPath(sessionID, leafID)
+  if (ids.length === 0) return
+
+  const rows = Database.use((db) =>
+    db.select().from(MessageTable).where(and(eq(MessageTable.session_id, sessionID), inArray(MessageTable.id, ids))).all(),
+  )
+
+  const indexMap = new Map(ids.map((id, i) => [id as string, i]))
+  rows.sort((a, b) => (indexMap.get(a.id) ?? 0) - (indexMap.get(b.id) ?? 0))
+
+  for (const msg of hydrate(rows)) {
+    yield msg
   }
 }
 

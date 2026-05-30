@@ -1,6 +1,7 @@
 import { NotFoundError } from "@/storage/storage"
 import { eq } from "drizzle-orm"
 import { and } from "drizzle-orm"
+import { inArray } from "drizzle-orm"
 import { SyncEvent } from "@/sync"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
@@ -56,6 +57,7 @@ export function toPartialRow(info: DeepPartial<Session.Info>) {
     summary_diffs: grab(info, "summary", (v) => grab(v, "diffs")),
     revert: grab(info, "revert"),
     permission: grab(info, "permission"),
+    leaf_id: grab(info, "leafID"),
     time_created: grab(info, "time", (v) => grab(v, "created")),
     time_updated: grab(info, "time", (v) => grab(v, "updated")),
     time_compacting: grab(info, "time", (v) => grab(v, "compacting")),
@@ -93,7 +95,7 @@ export default [
 
   SyncEvent.project(MessageV2.Event.Updated, (db, data) => {
     const time_created = data.info.time.created
-    const { id, sessionID, ...rest } = data.info
+    const { id, sessionID, treeParentID, ...rest } = data.info
 
     try {
       db.insert(MessageTable)
@@ -101,19 +103,29 @@ export default [
           id,
           session_id: sessionID,
           time_created,
+          tree_parent_id: treeParentID ?? null,
           data: rest,
         })
-        .onConflictDoUpdate({ target: MessageTable.id, set: { data: rest } })
+        .onConflictDoUpdate({ target: MessageTable.id, set: { data: rest, tree_parent_id: treeParentID ?? null } })
         .run()
     } catch (err) {
       if (!foreign(err)) throw err
       log.warn("ignored late message update", { messageID: id, sessionID })
     }
+
+    // leaf_id advancement is handled by updateMessage in session.ts via
+    // patch(), which publishes Session.Event.Updated so the TUI stays in sync.
   }),
 
   SyncEvent.project(MessageV2.Event.Removed, (db, data) => {
     db.delete(MessageTable)
       .where(and(eq(MessageTable.id, data.messageID), eq(MessageTable.session_id, data.sessionID)))
+      .run()
+  }),
+
+  SyncEvent.project(MessageV2.Event.SubtreeRemoved, (db, data) => {
+    db.delete(MessageTable)
+      .where(and(inArray(MessageTable.id, data.messageIDs), eq(MessageTable.session_id, data.sessionID)))
       .run()
   }),
 

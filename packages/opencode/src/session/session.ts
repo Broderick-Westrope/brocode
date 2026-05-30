@@ -42,6 +42,11 @@ import { NonNegativeInt, optionalOmitUndefined, withStatics } from "@opencode-ai
 
 const log = Log.create({ service: "session" })
 
+function parseModelString(model: string) {
+  const [providerID, ...rest] = model.split("/")
+  return { providerID: providerID ?? "", modelID: rest.join("/") }
+}
+
 const parentTitlePrefix = "New session - "
 const childTitlePrefix = "Child session - "
 
@@ -97,6 +102,7 @@ export function fromRow(row: SessionRow): Info {
       compacting: row.time_compacting ?? undefined,
       archived: row.time_archived ?? undefined,
     },
+    leafID: row.leaf_id ?? undefined,
   }
 }
 
@@ -124,6 +130,7 @@ export function toRow(info: Info) {
     time_updated: info.time.updated,
     time_compacting: info.time.compacting,
     time_archived: info.time.archived,
+    leaf_id: info.leafID ?? null,
   }
 }
 
@@ -193,6 +200,7 @@ export const Info = Schema.Struct({
   time: Time,
   permission: optionalOmitUndefined(Permission.Ruleset),
   revert: optionalOmitUndefined(Revert),
+  leafID: optionalOmitUndefined(MessageID),
 })
   .annotate({ identifier: "Session" })
   .pipe(withStatics((s) => ({ zod: zod(s) })))
@@ -298,6 +306,7 @@ const UpdatedInfo = Schema.Struct({
   time: Schema.optional(UpdatedTime),
   permission: Schema.optional(Schema.NullOr(Permission.Ruleset)),
   revert: Schema.optional(Schema.NullOr(Revert)),
+  leafID: Schema.optional(Schema.NullOr(MessageID)),
 })
 
 const UpdatedEventSchema = Schema.Struct({
@@ -434,6 +443,7 @@ export interface Interface {
     workspaceID?: WorkspaceID
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info, NotFound>
+  readonly clone: (input: { sessionID: SessionID }) => Effect.Effect<Info, NotFound>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
   readonly get: (id: SessionID) => Effect.Effect<Info, NotFound>
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
@@ -452,6 +462,12 @@ export interface Interface {
   readonly remove: (sessionID: SessionID) => Effect.Effect<void, NotFound>
   readonly updateMessage: <T extends MessageV2.Info>(msg: T) => Effect.Effect<T>
   readonly removeMessage: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MessageID>
+  readonly setLabel: (input: {
+    sessionID: SessionID
+    messageID: MessageID
+    label: string | undefined
+  }) => Effect.Effect<MessageV2.Info, NotFound>
+  readonly removeSubtree: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MessageID[], NotFound>
   readonly removePart: (input: { sessionID: SessionID; messageID: MessageID; partID: PartID }) => Effect.Effect<PartID>
   readonly getPart: (input: {
     sessionID: SessionID
@@ -471,6 +487,13 @@ export interface Interface {
     sessionID: SessionID,
     predicate: (msg: MessageV2.WithParts) => boolean,
   ) => Effect.Effect<Option.Option<MessageV2.WithParts>>
+  readonly branchTo: (input: {
+    sessionID: SessionID
+    messageID?: MessageID
+    summary?: string
+    fromLeafID?: MessageID
+    model?: string
+  }) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Session") {}
@@ -486,6 +509,11 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
     const bus = yield* Bus.Service
     const storage = yield* Storage.Service
     const sync = yield* SyncEvent.Service
+
+    // In-memory guard to avoid redundant leafID patches during streaming.
+    // Each session maps to the last leafID we patched — updateMessage only
+    // calls patch() when the message ID is strictly greater.
+    const leafHead = new Map<string, string>()
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
       id?: SessionID
@@ -582,6 +610,13 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
     const updateMessage = <T extends MessageV2.Info>(msg: T): Effect.Effect<T> =>
       Effect.gen(function* () {
         yield* sync.run(MessageV2.Event.Updated, { sessionID: msg.sessionID, info: msg })
+        if (msg.treeParentID !== undefined) {
+          const last = leafHead.get(msg.sessionID)
+          if (!last || msg.id > last) {
+            leafHead.set(msg.sessionID, msg.id)
+            yield* patch(msg.sessionID, { leafID: msg.id })
+          }
+        }
         return msg
       }).pipe(Effect.withSpan("Session.updateMessage"))
 
@@ -732,7 +767,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       if (input.limit) {
         return MessageV2.page({ sessionID: input.sessionID, limit: input.limit }).items
       }
-      return Array.from(MessageV2.stream(input.sessionID)).reverse()
+      return [...MessageV2.streamBranch(input.sessionID)]
     })
 
     const removeMessage = Effect.fn("Session.removeMessage")(function* (input: {
@@ -744,6 +779,56 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
         messageID: input.messageID,
       })
       return input.messageID
+    })
+
+    const setLabel = Effect.fn("Session.setLabel")(function* (input: {
+      sessionID: SessionID
+      messageID: MessageID
+      label: string | undefined
+    }) {
+      const msg = yield* Effect.try({
+        try: () => MessageV2.get({ sessionID: input.sessionID, messageID: input.messageID }),
+        catch: () => new NotFoundError({ message: `Message ${input.messageID} not found in session ${input.sessionID}` }),
+      })
+      const updated = { ...msg.info, label: input.label }
+      yield* sync.run(MessageV2.Event.Updated, { sessionID: input.sessionID, info: updated })
+      return updated
+    })
+
+    const removeSubtree = Effect.fn("Session.removeSubtree")(function* (input: {
+      sessionID: SessionID
+      messageID: MessageID
+    }) {
+      // Validate root message exists in the session
+      yield* Effect.try({
+        try: () => MessageV2.get({ sessionID: input.sessionID, messageID: input.messageID }),
+        catch: () => new NotFoundError({ message: `Message ${input.messageID} not found in session ${input.sessionID}` }),
+      })
+
+      const messages = [...MessageV2.stream(input.sessionID)]
+
+      const childrenMap = new Map<MessageID, MessageID[]>()
+      for (const msg of messages) {
+        if (!msg.info.treeParentID) continue
+        if (!childrenMap.has(msg.info.treeParentID)) childrenMap.set(msg.info.treeParentID, [])
+        childrenMap.get(msg.info.treeParentID)!.push(msg.info.id)
+      }
+
+      const toDelete: MessageID[] = []
+      const queue = [input.messageID]
+      while (queue.length > 0) {
+        const id = queue.pop()!
+        toDelete.push(id)
+        for (const childID of childrenMap.get(id) ?? []) {
+          queue.push(childID)
+        }
+      }
+
+      yield* sync.run(MessageV2.Event.SubtreeRemoved, {
+        sessionID: input.sessionID,
+        messageIDs: toDelete,
+      })
+      return toDelete
     })
 
     const removePart = Effect.fn("Session.removePart")(function* (input: {
@@ -769,21 +854,133 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       yield* bus.publish(MessageV2.Event.PartDelta, input)
     })
 
-    /** Finds the first message matching the predicate, searching newest-first. */
+    /** Finds the first message matching the predicate, searching newest-first within the current branch. */
     const findMessage = Effect.fn("Session.findMessage")(function* (
       sessionID: SessionID,
       predicate: (msg: MessageV2.WithParts) => boolean,
     ) {
-      for (const item of MessageV2.stream(sessionID)) {
+      for (const item of [...MessageV2.streamBranch(sessionID)].reverse()) {
         if (predicate(item)) return Option.some(item)
       }
       return Option.none<MessageV2.WithParts>()
+    })
+
+    const branchTo = Effect.fn("Session.branchTo")(function* (input: {
+      sessionID: SessionID
+      messageID?: MessageID
+      summary?: string
+      fromLeafID?: MessageID
+      model?: string
+    }) {
+      // No messageID: clear leafID to branch before root
+      if (!input.messageID) {
+        leafHead.delete(input.sessionID)
+        yield* patch(input.sessionID, { leafID: null })
+        return
+      }
+      const messageID = input.messageID
+      // Validate messageID belongs to this session
+      yield* Effect.try({
+        try: () => MessageV2.get({ sessionID: input.sessionID, messageID }),
+        catch: () => new NotFoundError({ message: `Message ${messageID} not found in session ${input.sessionID}` }),
+      }).pipe(Effect.orDie)
+      // Neither provided: simple navigation
+      if (!input.summary && !input.fromLeafID) {
+        leafHead.set(input.sessionID, messageID)
+        yield* patch(input.sessionID, { leafID: messageID })
+        return
+      }
+      // Only one provided: invalid state, treat as simple navigation
+      if (!input.summary || !input.fromLeafID) {
+        log.warn("branchTo: partial summary inputs, falling back to simple navigation", { sessionID: input.sessionID, summary: !!input.summary, fromLeafID: !!input.fromLeafID })
+        leafHead.set(input.sessionID, messageID)
+        yield* patch(input.sessionID, { leafID: messageID })
+        return
+      }
+
+      const parsed = input.model ? parseModelString(input.model) : undefined
+      const summaryMsg = yield* updateMessage({
+        id: MessageID.ascending(),
+        role: "user",
+        sessionID: input.sessionID,
+        treeParentID: messageID,
+        time: { created: Date.now() },
+        agent: "compaction",
+        model: {
+          providerID: ProviderID.make(parsed?.providerID ?? "system"),
+          modelID: ModelID.make(parsed?.modelID ?? "summary"),
+        },
+      })
+      yield* updatePart({
+        id: PartID.ascending(),
+        messageID: summaryMsg.id,
+        sessionID: input.sessionID,
+        type: "branch_summary",
+        summary: input.summary,
+        fromLeafID: input.fromLeafID,
+        model: input.model ?? "system/summary",
+      })
+      yield* patch(input.sessionID, { leafID: summaryMsg.id })
+    })
+
+    const clone = Effect.fn("Session.clone")(function* (input: { sessionID: SessionID }) {
+      const ctx = yield* InstanceState.context
+      const original = yield* get(input.sessionID)
+      const title = getForkedTitle(original.title)
+      const session = yield* createNext({
+        directory: ctx.directory,
+        path: sessionPath(ctx.worktree, ctx.directory),
+        workspaceID: original.workspaceID,
+        title,
+      })
+      const idMap = new Map<string, MessageID>()
+
+      for (const msg of MessageV2.streamBranch(input.sessionID, original.leafID)) {
+        const newID = MessageID.ascending()
+        idMap.set(msg.info.id, newID)
+
+        const treeParentID = msg.info.treeParentID ? idMap.get(msg.info.treeParentID) : undefined
+        if (msg.info.treeParentID && !treeParentID) {
+          log.warn("clone: treeParentID not found in ancestor path, creating disconnected node", {
+            sessionID: input.sessionID,
+            messageID: msg.info.id,
+            treeParentID: msg.info.treeParentID,
+          })
+        }
+        const parentID = msg.info.role === "assistant" && msg.info.parentID ? idMap.get(msg.info.parentID) : undefined
+        const cloned = yield* updateMessage({
+          ...msg.info,
+          sessionID: session.id,
+          id: newID,
+          ...(treeParentID && { treeParentID }),
+          ...(parentID && { parentID }),
+        })
+
+        for (const part of msg.parts) {
+          const p: MessageV2.Part = {
+            ...part,
+            id: PartID.ascending(),
+            messageID: cloned.id,
+            sessionID: session.id,
+          }
+          if (p.type === "compaction" && p.tail_start_id) {
+            p.tail_start_id = idMap.get(p.tail_start_id)
+          }
+          yield* updatePart(p)
+        }
+      }
+
+      const lastID = [...idMap.values()].at(-1)
+      if (lastID) yield* patch(session.id, { leafID: lastID })
+
+      return session
     })
 
     return Service.of({
       list,
       create,
       fork,
+      clone,
       touch,
       get,
       setTitle,
@@ -798,11 +995,14 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
       remove,
       updateMessage,
       removeMessage,
+      setLabel,
+      removeSubtree,
       removePart,
       updatePart,
       getPart,
       updatePartDelta,
       findMessage,
+      branchTo,
     })
   }),
 )

@@ -414,6 +414,7 @@ export const layer: Layer.Layer<
         id: MessageID.ascending(),
         role: "assistant",
         parentID: input.parentID,
+        treeParentID: input.parentID,
         sessionID: input.sessionID,
         mode: "compaction",
         agent: "compaction",
@@ -483,6 +484,7 @@ export const layer: Layer.Layer<
             id: MessageID.ascending(),
             role: "user",
             sessionID: input.sessionID,
+            treeParentID: msg.id,
             time: { created: Date.now() },
             agent: original.agent,
             model: original.model,
@@ -529,6 +531,7 @@ export const layer: Layer.Layer<
               id: MessageID.ascending(),
               role: "user",
               sessionID: input.sessionID,
+              treeParentID: msg.id,
               time: { created: Date.now() },
               agent: userMessage.agent,
               model: userMessage.model,
@@ -584,12 +587,14 @@ export const layer: Layer.Layer<
       auto: boolean
       overflow?: boolean
     }) {
+      const sessionInfo = yield* session.get(input.sessionID).pipe(Effect.orDie)
       const msg = yield* session.updateMessage({
         id: MessageID.ascending(),
         role: "user",
         model: input.model,
         sessionID: input.sessionID,
         agent: input.agent,
+        treeParentID: sessionInfo.leafID,
         time: { created: Date.now() },
       })
       yield* session.updatePart({

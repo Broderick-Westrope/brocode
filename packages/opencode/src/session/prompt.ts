@@ -574,11 +574,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       task: MessageV2.SubtaskPart
       model: Provider.Model
       lastUser: MessageV2.User
+      lastAssistant: MessageV2.Assistant | undefined
       sessionID: SessionID
       session: Session.Info
       msgs: MessageV2.WithParts[]
     }) {
-      const { task, model, lastUser, sessionID, session, msgs } = input
+      const { task, model, lastUser, lastAssistant, sessionID, session, msgs } = input
       const ctx = yield* InstanceState.context
       const promptOps = yield* ops()
       const { task: taskTool } = yield* registry.named()
@@ -587,6 +588,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         id: MessageID.ascending(),
         role: "assistant",
         parentID: lastUser.id,
+        treeParentID: lastAssistant && lastAssistant.id > lastUser.id ? lastAssistant.id : lastUser.id,
         sessionID,
         mode: task.agent,
         agent: task.agent,
@@ -748,6 +750,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         id: MessageID.ascending(),
         sessionID,
         role: "user",
+        treeParentID: assistantMessage.id,
         time: { created: Date.now() },
         agent: lastUser.agent,
         model: lastUser.model,
@@ -769,10 +772,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const markReady = ready ? ready.open.pipe(Effect.asVoid) : Effect.void
           const { msg, part, cwd } = yield* Effect.gen(function* () {
             const ctx = yield* InstanceState.context
-            const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
-            if (session.revert) {
-              yield* revert.cleanup(session)
+            const preSession = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+            if (preSession.revert) {
+              yield* revert.cleanup(preSession)
             }
+            const session = preSession.revert
+              ? yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+              : preSession
             const agent = yield* agents.get(input.agent)
             if (!agent) {
               const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
@@ -785,6 +791,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             const userMsg: MessageV2.User = {
               id: input.messageID ?? MessageID.ascending(),
               sessionID: input.sessionID,
+              treeParentID: session.leafID,
               time: { created: Date.now() },
               role: "user",
               agent: input.agent,
@@ -805,6 +812,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               id: MessageID.ascending(),
               sessionID: input.sessionID,
               parentID: userMsg.id,
+              treeParentID: userMsg.id,
               mode: input.agent,
               agent: input.agent,
               cost: 0,
@@ -964,10 +972,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           : undefined
       const variant = input.variant ?? (ag.variant && full?.variants?.[ag.variant] ? ag.variant : undefined)
 
+      const current = Database.use((db) =>
+        db
+          .select({ agent: SessionTable.agent, model: SessionTable.model, leaf_id: SessionTable.leaf_id })
+          .from(SessionTable)
+          .where(eq(SessionTable.id, input.sessionID))
+          .get(),
+      )
+
       const info: MessageV2.User = {
         id: input.messageID ?? MessageID.ascending(),
         role: "user",
         sessionID: input.sessionID,
+        treeParentID: current?.leaf_id ?? undefined,
         time: { created: Date.now() },
         tools: input.tools,
         agent: ag.name,
@@ -979,14 +996,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         system: input.system,
         format: input.format,
       }
-
-      const current = Database.use((db) =>
-        db
-          .select({ agent: SessionTable.agent, model: SessionTable.model })
-          .from(SessionTable)
-          .where(eq(SessionTable.id, input.sessionID))
-          .get(),
-      )
       if (current?.agent !== info.agent) {
         EventV2.run(SessionEvent.AgentSwitched.Sync, {
           sessionID: input.sessionID,
@@ -1459,14 +1468,28 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           // Keep the loop running so tool results can be sent back to the model.
           // Skip provider-executed tool parts — those were fully handled within the
           // provider's stream (e.g. DWS Agent Platform) and don't need a re-loop.
+          // Also skip already-completed/errored tool calls — these appear in compaction
+          // tails where the original conversation already processed the tool results.
           const hasToolCalls =
-            lastAssistantMsg?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false
+            lastAssistantMsg?.parts.some(
+              (part) =>
+                part.type === "tool" &&
+                !part.metadata?.providerExecuted &&
+                part.state.status !== "completed" &&
+                part.state.status !== "error",
+            ) ?? false
+
+          // Use positional comparison: after compaction reordering the
+          // compaction user (new ULID) can appear before old tail assistants
+          // (old ULIDs), so lexicographic ID comparison is unreliable.
+          const lastUserIdx = msgs.findLastIndex((m) => m.info.role === "user")
+          const lastAssistantIdx = msgs.findLastIndex((m) => m.info.role === "assistant")
 
           if (
             lastAssistant?.finish &&
             !["tool-calls"].includes(lastAssistant.finish) &&
             !hasToolCalls &&
-            lastUser.id < lastAssistant.id
+            lastUserIdx < lastAssistantIdx
           ) {
             yield* slog.info("exiting loop")
             break
@@ -1485,7 +1508,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const task = tasks.pop()
 
           if (task?.type === "subtask") {
-            yield* handleSubtask({ task, model, lastUser, sessionID, session, msgs })
+            yield* handleSubtask({ task, model, lastUser, lastAssistant, sessionID, session, msgs })
             continue
           }
 
@@ -1525,6 +1548,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const msg: MessageV2.Assistant = {
             id: MessageID.ascending(),
             parentID: lastUser.id,
+            treeParentID: lastAssistant && lastAssistant.id > lastUser.id ? lastAssistant.id : lastUser.id,
             role: "assistant",
             mode: agent.name,
             agent: agent.name,

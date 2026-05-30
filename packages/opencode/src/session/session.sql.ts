@@ -10,7 +10,7 @@ import type { WorkspaceID } from "../control-plane/schema"
 import { Timestamps } from "../storage/schema.sql"
 
 type PartData = Omit<MessageV2.Part, "id" | "sessionID" | "messageID">
-type InfoData = Omit<MessageV2.Info, "id" | "sessionID">
+type InfoData = Omit<MessageV2.Info, "id" | "sessionID" | "treeParentID">
 type SessionMessageData = Omit<(typeof SessionMessage.Message)["Encoded"], "type" | "id">
 
 export const SessionTable = sqliteTable(
@@ -41,6 +41,7 @@ export const SessionTable = sqliteTable(
       providerID: string
       variant?: string
     }>(),
+    leaf_id: text().$type<MessageID>(),
     ...Timestamps,
     time_compacting: integer(),
     time_archived: integer(),
@@ -62,8 +63,12 @@ export const MessageTable = sqliteTable(
       .references(() => SessionTable.id, { onDelete: "cascade" }),
     ...Timestamps,
     data: text({ mode: "json" }).notNull().$type<InfoData>(),
+    tree_parent_id: text().$type<MessageID>(),
   },
-  (table) => [index("message_session_time_created_id_idx").on(table.session_id, table.time_created, table.id)],
+  (table) => [
+    index("message_session_time_created_id_idx").on(table.session_id, table.time_created, table.id),
+    index("message_session_tree_parent_idx").on(table.session_id, table.tree_parent_id),
+  ],
 )
 
 export const PartTable = sqliteTable(

@@ -11,7 +11,7 @@ import { useTheme, selectedForeground } from "@tui/context/theme"
 import { entries, filter, flatMap, groupBy, pipe } from "remeda"
 import { batch, createEffect, createMemo, For, Show, type JSX, on } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useTerminalDimensions } from "@opentui/solid"
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import * as fuzzysort from "fuzzysort"
 import { isDeepEqual } from "remeda"
 import { useDialog, type DialogContext } from "@tui/ui/dialog"
@@ -25,6 +25,8 @@ export interface DialogSelectProps<T> {
   placeholder?: string
   options: DialogSelectOption<T>[]
   flat?: boolean
+  filterMode?: "always" | "on-demand"
+  hints?: JSX.Element
   ref?: (ref: DialogSelectRef<T>) => void
   onMove?: (option: DialogSelectOption<T>) => void
   onFilter?: (query: string) => void
@@ -59,6 +61,9 @@ export interface DialogSelectOption<T = any> {
 export type DialogSelectRef<T> = {
   filter: string
   filtered: DialogSelectOption<T>[]
+  filterActive: boolean
+  selected: DialogSelectOption<T> | undefined
+  moveTo: (index: number) => void
 }
 
 export function DialogSelect<T>(props: DialogSelectProps<T>) {
@@ -71,6 +76,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     selected: 0,
     filter: "",
     input: "keyboard" as "keyboard" | "mouse",
+    filterActive: props.filterMode !== "on-demand",
   })
 
   createEffect(
@@ -220,6 +226,11 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   }
 
   function submit() {
+    if (props.filterMode === "on-demand" && store.filterActive) {
+      setStore("filterActive", false)
+      if (input && !input.isDestroyed) input.blur()
+      return
+    }
     setStore("input", "keyboard")
     const option = selected()
     if (!option) return
@@ -321,7 +332,46 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
         }),
       ],
     }
+
   })
+
+  // Activate on-demand filter when "/" is pressed
+  useKeyboard((evt) => {
+    if (props.filterMode !== "on-demand") return
+    if (store.filterActive) return
+    if (evt.name !== "/") return
+    evt.preventDefault()
+    evt.stopPropagation()
+    setStore("filterActive", true)
+    setTimeout(() => {
+      if (!input) return
+      if (input.isDestroyed) return
+      input.focus()
+    }, 1)
+  })
+
+  // Deactivate on-demand filter on Escape (takes priority over dialog close)
+  useBindings(() => ({
+    enabled: props.filterMode === "on-demand" && store.filterActive,
+    bindings: [
+      {
+        key: "escape",
+        desc: "Deactivate filter",
+        group: "Dialog",
+        cmd: () => {
+          batch(() => {
+            setStore("filterActive", false)
+            setStore("filter", "")
+            props.onFilter?.("")
+          })
+          if (input && !input.isDestroyed) {
+            input.clear()
+            input.blur()
+          }
+        },
+      },
+    ],
+  }))
 
   let scroll: ScrollBoxRenderable | undefined
   const ref: DialogSelectRef<T> = {
@@ -331,6 +381,13 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     get filtered() {
       return filtered()
     },
+    get filterActive() {
+      return store.filterActive
+    },
+    get selected() {
+      return selected()
+    },
+    moveTo,
   }
   props.ref?.(ref)
 
@@ -357,6 +414,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           <box paddingTop={1}>
             <input
               onInput={(e) => {
+                if (props.filterMode === "on-demand" && !store.filterActive) return
                 batch(() => {
                   setStore("filter", e)
                   props.onFilter?.(e)
@@ -371,10 +429,10 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                 setTimeout(() => {
                   if (!input) return
                   if (input.isDestroyed) return
-                  input.focus()
+                  if (store.filterActive) input.focus()
                 }, 1)
               }}
-              placeholder={props.placeholder ?? "Search"}
+              placeholder={props.filterMode === "on-demand" && !store.filterActive ? "/ to filter" : (props.placeholder ?? "Search")}
               placeholderColor={theme.textMuted}
             />
           </box>
@@ -467,7 +525,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           </For>
         </scrollbox>
       </Show>
-      <Show when={visibleActions().length} fallback={<box flexShrink={0} />}>
+      <Show when={visibleActions().length || props.hints} fallback={<box flexShrink={0} />}>
         <box
           paddingRight={2}
           paddingLeft={4}
@@ -487,6 +545,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                 </text>
               )}
             </For>
+            {props.hints}
           </box>
           <box flexDirection="row" gap={2}>
             <For each={right()}>
